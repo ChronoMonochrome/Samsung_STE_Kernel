@@ -148,12 +148,24 @@ static void __kprobes set_current_kprobe(struct kprobe *p)
 	__get_cpu_var(current_kprobe) = p;
 }
 
-static void __kprobes singlestep(struct kprobe *p, struct pt_regs *regs,
-				 struct kprobe_ctlblk *kcb)
+static void __kprobes
+singlestep_skip(struct kprobe *p, struct pt_regs *regs)
 {
+#ifdef CONFIG_THUMB2_KERNEL
+	regs->ARM_cpsr = it_advance(regs->ARM_cpsr);
+	if (is_wide_instruction(p->opcode))
+		regs->ARM_pc += 4;
+	else
+		regs->ARM_pc += 2;
+#else
 	regs->ARM_pc += 4;
-	if (p->ainsn.insn_check_cc(regs->ARM_cpsr))
-		p->ainsn.insn_handler(p, regs);
+#endif
+}
+
+static inline void __kprobes
+singlestep(struct kprobe *p, struct pt_regs *regs, struct kprobe_ctlblk *kcb)
+{
+	p->ainsn.insn_singlestep(p, regs);
 }
 
 /*
