@@ -284,7 +284,7 @@ int pm_clk_resume(struct device *dev)
  * struct pm_clk_notifier_block containing all of the requisite data.
  * Specifically, the pm_domain member of that object is copied to the device's
  * pm_domain field and its con_ids member is used to populate the device's list
- * of PM clocks, depending on @action.
+ * of runtime PM clocks, depending on @action.
  *
  * If the device's pm_domain field is already populated with a value different
  * from the one stored in the struct pm_clk_notifier_block object, the function
@@ -325,7 +325,11 @@ static int pm_clk_notify(struct notifier_block *nb,
 			break;
 
 		dev->pm_domain = NULL;
+<<<<<<< HEAD
 		pm_clk_destroy(dev);
+=======
+		pm_runtime_clk_destroy(dev);
+>>>>>>> e20cbab... PM / Domains: Rename struct dev_power_domain to struct dev_pm_domain
 		break;
 	}
 
