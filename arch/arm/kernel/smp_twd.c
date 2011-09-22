@@ -26,6 +26,9 @@ void __iomem *twd_base;
 
 static unsigned long twd_timer_rate;
 
+static DEFINE_PER_CPU(u32, twd_ctrl);
+static DEFINE_PER_CPU(u32, twd_load);
+
 static void twd_set_mode(enum clock_event_mode mode,
 			struct clock_event_device *clk)
 {
@@ -142,3 +145,24 @@ void __cpuinit twd_timer_setup(struct clock_event_device *clk)
 	/* Make sure our local interrupt controller has this enabled */
 	gic_enable_ppi(clk->irq);
 }
+
+#if defined(CONFIG_HOTPLUG) || defined(CONFIG_CPU_IDLE)
+void twd_save(void)
+{
+	int this_cpu = smp_processor_id();
+
+	per_cpu(twd_ctrl, this_cpu) = __raw_readl(twd_base + TWD_TIMER_CONTROL);
+	per_cpu(twd_load, this_cpu) = __raw_readl(twd_base + TWD_TIMER_LOAD);
+
+}
+
+void twd_restore(void)
+{
+	int this_cpu = smp_processor_id();
+
+	__raw_writel(per_cpu(twd_ctrl, this_cpu),
+		     twd_base + TWD_TIMER_CONTROL);
+	__raw_writel(per_cpu(twd_load, this_cpu),
+		     twd_base + TWD_TIMER_LOAD);
+}
+#endif
