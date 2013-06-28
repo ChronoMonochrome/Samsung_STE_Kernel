@@ -52,10 +52,7 @@
 #include <plat/pincfg.h>
 #include <plat/i2c.h>
 #include <plat/ste_dma40.h>
-<<<<<<< HEAD
 #include <plat/gpio-nomadik.h>
-=======
->>>>>>> 5071753... Add files from diff --stat -p --filter=A HEAD ours
 
 #include <mach/devices.h>
 #if defined(CONFIG_LIGHT_PROX_GP2A)
