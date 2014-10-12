@@ -86,7 +86,7 @@ static struct prcmu_qos_object ape_opp_qos = {
 	.notifiers = &prcmu_ape_opp_notifier,
 	.name = "ape_opp",
 	/* Target value in % APE OPP */
-	.default_value = 50,
+	.default_value = 25,
 	.max_value = 100,
 	.force_value = 0,
 	.target_value = ATOMIC_INIT(100),
@@ -417,8 +417,9 @@ static void update_target(int target, bool sem)
 			break;
 	case PRCMU_QOS_APE_OPP:
 		switch (extreme_value) {
+		case 25:
 		case 50:
-			if (ape_opp_50_partly_25_enabled)
+			if (ape_opp_50_partly_25_enabled || extreme_value == 25)
 				op = APE_50_PARTLY_25_OPP;
 			else
 				op = APE_50_OPP;
@@ -1034,8 +1035,10 @@ static int __init prcmu_qos_power_init(void)
 			PRCMU_QOS_DEFAULT_VALUE);
 	cpufreq_requirement_set = PRCMU_QOS_DEFAULT_VALUE;
 	cpufreq_requirement_queued = PRCMU_QOS_DEFAULT_VALUE;
+/*
 	cpufreq_register_notifier(&qos_delayed_cpufreq_notifier_block,
 			CPUFREQ_TRANSITION_NOTIFIER);
+*/
 	if (cpu_is_u9540()) {
 		prcmu_qos_add_requirement(PRCMU_QOS_ARM_KHZ, "cpufreq",
 				PRCMU_QOS_DEFAULT_VALUE);
