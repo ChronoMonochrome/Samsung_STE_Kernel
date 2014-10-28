@@ -6,8 +6,7 @@
 
 struct cfq_queue;
 struct cfq_ttime {
-	unsigned long last_end_request;
-
+	unsigned long last_end_request; 
 	unsigned long ttime_total;
 	unsigned long ttime_samples;
 	unsigned long ttime_mean;
@@ -21,6 +20,12 @@ struct cfq_io_context {
 	struct io_context *ioc;
 
 	struct cfq_ttime ttime;
+	
+	unsigned long last_end_request;
+
+	unsigned long ttime_total;
+	unsigned long ttime_samples;
+	unsigned long ttime_mean;
 
 	struct list_head queue_list;
 	struct hlist_node cic_list;
