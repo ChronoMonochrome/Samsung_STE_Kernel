@@ -18,6 +18,7 @@ obj-$(CONFIG_CPU_FREQ_GOV_SMARTASS2) += cpufreq_smartass2.o
 obj-$(CONFIG_CPU_FREQ_GOV_LAGFREE)      += cpufreq_lagfree.o
 obj-$(CONFIG_CPU_FREQ_GOV_ZZMOOVE)      += cpufreq_zzmoove.o
 obj-$(CONFIG_CPU_FREQ_GOV_LULZACTIVEQ)	+= cpufreq_lulzactiveq.o
+obj-$(CONFIG_CPU_FREQ_GOV_ZENX) += cpufreq_zenx.o
 
 #CPUfreq limits on suspend
 obj-$(CONFIG_CPU_FREQ_LIMITS_ON_SUSPEND) += cpufreq_limits_on_suspend.o

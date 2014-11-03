@@ -391,7 +391,9 @@ extern struct cpufreq_governor cpufreq_gov_lagfree;
 #elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_SMARTASS2)
 extern struct cpufreq_governor cpufreq_gov_smartass2;
 #define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_smartass2)
->>>>>>> afa6c81... cpufreq: add more governors
+#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_ZENX)
+extern struct cpufreq_governor cpufreq_gov_zenx;
+#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_zenx)
 #endif
 
 
