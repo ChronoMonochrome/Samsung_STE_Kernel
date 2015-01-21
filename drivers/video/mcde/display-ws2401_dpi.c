@@ -42,7 +42,7 @@
 #include <video/mcde_display-dpi.h>
 #include <video/mcde_display_ssg_dpi.h>
 
-#define ESD_PORT_NUM 93
+#define ESD_PORT_NUM	93
 #define SPI_COMMAND		0
 #define SPI_DATA		1
 
@@ -60,7 +60,7 @@
 #define MAX_BRIGHTNESS		255
 #define DEFAULT_BRIGHTNESS	120
 
-#define DCS_CMD_COLMOD		0x3A	/* Set Pixel Format */
+#define DCS_CMD_COLMOD          0x3A    /* Set Pixel Format */
 #define DCS_CMD_WS2401_RESCTL	0xB8	/* Resolution Select Control */
 #define DCS_CMD_WS2401_PSMPS	0xBD	/* SMPS Positive Control */
 #define DCS_CMD_WS2401_NSMPS	0xBE	/* SMPS Negative Control */
@@ -78,7 +78,7 @@
 #define DCS_CMD_WS2401_PWRCTL	0xF3	/* Power Control */
 #define DCS_CMD_WS2401_VCOMCTL	0xF4	/* VCOM Control */
 #define DCS_CMD_WS2401_SRCCTL	0xF5	/* Source Control */
-#define DCS_CMD_WS2401_PANELCTL 0xF6	/*Panel Control*/
+#define DCS_CMD_WS2401_PANELCTL 0xF6	/* Panel Control */
 
 
 #define DCS_CMD_SEQ_DELAY_MS	0xFE
@@ -136,48 +136,50 @@ static const u8 DCS_CMD_SEQ_WS2401_INIT[] = {
 						0x5A,
 	2,	DCS_CMD_WS2401_RESCTL,		0x12,	/* 480RGB x 800 */
 	/* Flip V(d0), Flip H(d1), RGB/BGR(d3) */
-	2,	DCS_CMD_SET_ADDRESS_MODE,	0x09,
+	2,	DCS_CMD_SET_ADDRESS_MODE,	0x08,
 	/* 0x60=262K Colour(=18 bit/pixel), 0x70=16.7M Colour(=24 bit/pixel) */
-	2,	DCS_CMD_COLMOD,			0x70,
+	2,	DCS_CMD_COLMOD,				0x70,
+
+	3,	DCS_CMD_WS2401_SMPS,		0x00,	/*SMPS Block init*/
+						0x0F,
 	7,	DCS_CMD_WS2401_PSMPS,		0x06,
-						0x01,	/* DDVDH:4.6v */
-						0x78,
-						0x06,
-						0x10,
-						0x37,
-	7,	DCS_CMD_WS2401_NSMPS,		0x06,
-						0x01,	/* DDVDL:-4.6v */
-						0x78,
-						0x06,
+						0x03,	/* DDVDH:4.6v */
+						0x7E,
+						0x03,
 						0x12,
 						0x37,
+	7,	DCS_CMD_WS2401_NSMPS,		0x06,
+						0x03,	/* DDVDL:-4.6v */
+						0x7E,
+						0x03,
+						0x15,
+						0x37,
 	3,	DCS_CMD_WS2401_SMPS,		0x02,
-						0x0D,
+						0x0F,
 	11,	DCS_CMD_WS2401_PWRCTL,		0x10,
 						0xA9,
 						0x00,
 						0x01,
 						0x44,
-						0xF4,	/* VGH:16.1v,
+						0xB4,	/* VGH:16.1v,
 							VGL:-13.8v */
 						0x50,	/* GREFP:4.2v(dft) */
 						0x50,	/* GREFN:-4.2v(dft) */
 						0x00,
-						0x3C,	/* VOUTL:-10v(dft) */
+						0x44,	/* VOUTL:-10v(dft) */
 	10,	DCS_CMD_WS2401_SRCCTL,		0x03,
 						0x0C,
 						0x00,
 						0x00,
 						0x00,
 						0x01,	/* 2 dot inversion */
-						0x01,
-						0x06,
 						0x00,
-	6,	DCS_CMD_WS2401_PANELCTL, 0x14,
-		0x00,
-		0x80,
-		0x00,
-		0x00,
+						0x06,
+						0x03,
+	5,	DCS_CMD_WS2401_PANELCTL,        0x34,
+						0x00,
+						0x80,
+						0x00,
 
 	DCS_CMD_SEQ_END
 };
@@ -536,13 +538,14 @@ static int ws2401_dpi_ldi_init(struct ws2401_dpi *lcd)
 
 	ret |= ws2401_write_dcs_sequence(lcd, DCS_CMD_SEQ_WS2401_INIT);
 
-
+/*
 	if (lcd->pd->bl_ctrl)
 		ret |= ws2401_write_dcs_sequence(lcd,
 				DCS_CMD_SEQ_WS2401_ENABLE_BACKLIGHT_CONTROL);
 	else
 		ret |= ws2401_write_dcs_sequence(lcd,
 				DCS_CMD_SEQ_WS2401_DISABLE_BACKLIGHT_CONTROL);
+*/
 
 	return ret;
 }
@@ -551,9 +554,11 @@ static int ws2401_dpi_ldi_enable(struct ws2401_dpi *lcd)
 {
 	int ret = 0;
 	dev_dbg(lcd->dev, "ws2401_dpi_ldi_enable\n");
-
+if (lcd->pd->sleep_out_delay)
+			msleep(lcd->pd->sleep_out_delay);
 	ret |= ws2401_write_dcs_sequence(lcd, DCS_CMD_SEQ_WS2401_DISPLAY_ON);
-
+if (lcd->pd->sleep_out_delay)
+			msleep(lcd->pd->sleep_out_delay);
 	if (!ret)
 		lcd->ldi_state = LDI_STATE_ON;
 
@@ -565,7 +570,9 @@ static int ws2401_dpi_ldi_disable(struct ws2401_dpi *lcd)
 	int ret;
 
 	dev_dbg(lcd->dev, "ws2401_dpi_ldi_disable\n");
-	ret = ws2401_write_dcs_sequence(lcd,
+        ret |= ws2401_write_dcs_sequence(lcd,
+					DCS_CMD_SEQ_WS2401_DISPLAY_OFF);
+	ret |= ws2401_write_dcs_sequence(lcd,
 				DCS_CMD_SEQ_WS2401_ENTER_SLEEP_MODE);
 
 	if (lcd->pd->sleep_in_delay)
@@ -871,7 +878,7 @@ static void est_test_timer_func(unsigned long data)
 }
 #endif
 #endif
-static int __init ws2401_dpi_spi_probe(struct spi_device *spi)
+static int __devinit ws2401_dpi_spi_probe(struct spi_device *spi)
 {
 	int ret = 0;
 	struct ws2401_dpi *lcd = container_of(spi->dev.driver,
@@ -1211,7 +1218,7 @@ static void ws2401_dpi_mcde_late_resume(
 }
 #endif
 
-static struct mcde_display_driver ws2401_dpi_mcde = {
+static struct mcde_display_driver ws2401_dpi_mcde __refdata = {
 	.probe          = ws2401_dpi_mcde_probe,
 	.remove         = ws2401_dpi_mcde_remove,
 	.shutdown	= ws2401_dpi_mcde_shutdown,
@@ -1245,4 +1252,3 @@ module_exit(ws2401_dpi_exit);
 MODULE_AUTHOR("Gareth Phillips <gareth.phillips@samsung.com>");
 MODULE_DESCRIPTION("WideChips WS2401 DPI Driver");
 MODULE_LICENSE("GPL");
-
