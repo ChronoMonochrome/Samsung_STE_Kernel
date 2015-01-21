@@ -341,6 +341,12 @@ config TARGET_LOCALE_CHN
 	default n
 	help
           This enables 'Wlan CHN' feature.
+          
+config MACH_CODINA_EURO
+	bool "Codina Euro device"
+	default n
+	help
+	  Supports Codina Euro boards.
 
 source "arch/arm/mach-ux500/Kconfig-arch"
 source "arch/arm/mach-ux500/pm/Kconfig"
