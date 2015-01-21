@@ -23,6 +23,7 @@
 #include <linux/init.h>
 #include <linux/nmi.h>
 #include <linux/dmi.h>
+#include <linux/mfd/abx500/ux500_sysctrl.h>
 #ifdef CONFIG_SAMSUNG_KERNEL_DEBUG
 #include <asm/cacheflush.h>
 #include <linux/smp.h>
@@ -30,7 +31,6 @@
 #include <linux/mfd/ab8500.h>
 #include <linux/mfd/abx500.h>
 #include <linux/mfd/abx500/ab8500-bm.h>
-#include <linux/mfd/abx500/ux500_sysctrl.h>
 
 /* L1 & L2 cache management */
 #include <asm/cacheflush.h>
