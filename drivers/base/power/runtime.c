@@ -398,7 +398,19 @@ static int rpm_suspend(struct device *dev, int rpmflags)
 		dev->power.deferred_resume = false;
 		if (retval == -EAGAIN || retval == -EBUSY)
 			dev->power.runtime_error = 0;
-		else
+
+			/*
+			 * If the callback routine failed an autosuspend, and
+			 * if the last_busy time has been updated so that there
+			 * is a new autosuspend expiration time, automatically
+			 * reschedule another autosuspend.
+			 */
+			if ((rpmflags & RPM_AUTO) &&
+			    pm_runtime_autosuspend_expiration(dev) != 0) {
+				wake_up_all(&dev->power.wait_queue);
+				goto repeat;
+			}
+		} else {
 			pm_runtime_cancel_pending(dev);
 	} else {
  no_callback:
