@@ -1,16 +1,19 @@
 /*
- * arch/arm/mach-ux500/ste_dma40_db8500.h
- * DB8500-SoC-specific configuration for DMA40
- *
- * Copyright (C) ST-Ericsson 2007-2010
+ * Copyright (C) ST-Ericsson SA 2007-2010
+ * Author: Per Friden <per.friden@stericsson.com> for ST-Ericsson
+ * Author: Jonas Aaberg <jonas.aberg@stericsson.com> for ST-Ericsson
  * License terms: GNU General Public License (GPL) version 2
- * Author: Per Friden <per.friden@stericsson.com>
- * Author: Jonas Aaberg <jonas.aberg@stericsson.com>
+ *
+ * DB8500-SoC-specific configuration for DMA40
  */
 #ifndef STE_DMA40_DB8500_H
 #define STE_DMA40_DB8500_H
 
 #define DB8500_DMA_NR_DEV 64
+/*
+ * All entries with double names are multiplexed
+ * and can never be used at the same time.
+ */
 
 enum dma_src_dev_type {
 	DB8500_DMA_DEV0_SPI0_RX = 0,
@@ -20,7 +23,7 @@ enum dma_src_dev_type {
 	DB8500_DMA_DEV4_I2C1_RX = 4,
 	DB8500_DMA_DEV5_I2C3_RX = 5,
 	DB8500_DMA_DEV6_I2C2_RX = 6,
-	DB8500_DMA_DEV7_I2C4_RX = 7, /* Only on V1 and later */
+	DB8500_DMA_DEV7_I2C4_RX = 7,
 	DB8500_DMA_DEV8_SSP0_RX = 8,
 	DB8500_DMA_DEV9_SSP1_RX = 9,
 	DB8500_DMA_DEV10_MCDE_RX = 10,
@@ -34,6 +37,8 @@ enum dma_src_dev_type {
 	DB8500_DMA_DEV18_USB_OTG_IEP_5_13 = 18,
 	DB8500_DMA_DEV19_USB_OTG_IEP_4_12 = 19,
 	DB8500_DMA_DEV20_SLIM0_CH0_RX_HSI_RX_CH0 = 20,
+	/* DB9540 additionally supports MSP4 on DMA request line 20 */
+	DB9540_DMA_DEV20_SLIM0_CH0_RX_HSI_RX_CH0_MSP4_RX = 20,
 	DB8500_DMA_DEV21_SLIM0_CH1_RX_HSI_RX_CH1 = 21,
 	DB8500_DMA_DEV22_SLIM0_CH2_RX_HSI_RX_CH2 = 22,
 	DB8500_DMA_DEV23_SLIM0_CH3_RX_HSI_RX_CH3 = 23,
@@ -43,8 +48,6 @@ enum dma_src_dev_type {
 	DB8500_DMA_DEV27_SRC_SXA3_RX_TX = 27,
 	DB8500_DMA_DEV28_SD_MM2_RX = 28,
 	DB8500_DMA_DEV29_SD_MM0_RX = 29,
-	DB8500_DMA_DEV30_MSP1_RX = 30,
-	/* On DB8500v2, MSP3 RX replaces MSP1 RX */
 	DB8500_DMA_DEV30_MSP3_RX = 30,
 	DB8500_DMA_DEV31_MSP0_RX_SLIM0_CH0_RX = 31,
 	DB8500_DMA_DEV32_SD_MM1_RX = 32,
@@ -82,7 +85,7 @@ enum dma_dest_dev_type {
 	DB8500_DMA_DEV4_I2C1_TX = 4,
 	DB8500_DMA_DEV5_I2C3_TX = 5,
 	DB8500_DMA_DEV6_I2C2_TX = 6,
-	DB8500_DMA_DEV7_I2C4_TX = 7, /* Only on V1 and later */
+	DB8500_DMA_DEV7_I2C4_TX = 7,
 	DB8500_DMA_DEV8_SSP0_TX = 8,
 	DB8500_DMA_DEV9_SSP1_TX = 9,
 	/* 10 is not used*/
@@ -97,6 +100,8 @@ enum dma_dest_dev_type {
 	DB8500_DMA_DEV19_USB_OTG_OEP_4_12 = 19,
 	DB8500_DMA_DEV20_SLIM0_CH0_TX_HSI_TX_CH0 = 20,
 	DB8500_DMA_DEV21_SLIM0_CH1_TX_HSI_TX_CH1 = 21,
+	/* DB9540 additionally supports MSP4 on DMA request line 21 */
+	DB9540_DMA_DEV21_SLIM0_CH1_TX_HSI_TX_CH1_MSP4_TX = 21,
 	DB8500_DMA_DEV22_SLIM0_CH2_TX_HSI_TX_CH2 = 22,
 	DB8500_DMA_DEV23_SLIM0_CH3_TX_HSI_TX_CH3 = 23,
 	DB8500_DMA_DEV24_DST_SXA0_RX_TX = 24,
