@@ -64,9 +64,13 @@ extern unsigned int irq_create_of_mapping(struct device_node *controller,
 					  const u32 *intspec,
 					  unsigned int intsize);
 <<<<<<< HEAD
+<<<<<<< HEAD
 #ifdef CONFIG_IRQ_DOMAIN
 extern void irq_dispose_mapping(unsigned int irq);
 #endif
+=======
+extern void irq_dispose_mapping(unsigned int irq);
+>>>>>>> dcaf1f4... include/linux/
 =======
 extern void irq_dispose_mapping(unsigned int irq);
 >>>>>>> dcaf1f4... include/linux/
