@@ -1356,7 +1356,19 @@ int i2c_transfer(struct i2c_adapter *adap, struct i2c_msg *msgs, int num)
 		i2c_unlock_adapter(adap);
 
 		return ret;
-	} else {
+	}
+#ifdef CONFIG_SAMSUNG_PANIC_DISPLAY_DEVICES
+	else if (adap->algo->master_panic_xfer){
+		for (ret = 0, try = 0; try <= adap->retries; try++) {
+			ret = adap->algo->master_panic_xfer(adap, msgs, num);
+			if (ret != -EAGAIN)
+				break;
+		}
+
+		return ret;
+	}
+#endif 
+	else {
 		dev_dbg(&adap->dev, "I2C level transfers not supported\n");
 		return -EOPNOTSUPP;
 	}
