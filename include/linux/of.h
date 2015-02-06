@@ -196,6 +196,7 @@ extern struct property *of_find_property(const struct device_node *np,
 					 const char *name,
 					 int *lenp);
 extern int of_property_read_u32_array(const struct device_node *np,
+<<<<<<< HEAD
 				      const char *propname,
 				      u32 *out_values,
 				      size_t sz);
@@ -203,6 +204,14 @@ extern int of_property_read_u32_array(const struct device_node *np,
 extern int of_property_read_string(struct device_node *np,
 				   const char *propname,
 				   const char **out_string);
+=======
+				      char *propname,
+				      u32 *out_values,
+				      size_t sz);
+
+extern int of_property_read_string(struct device_node *np, char *propname,
+					const char **out_string);
+>>>>>>> f866528... include/linux/
 extern int of_device_is_compatible(const struct device_node *device,
 				   const char *);
 extern int of_device_is_available(const struct device_node *device);
@@ -243,15 +252,23 @@ static inline bool of_have_populated_dt(void)
 }
 
 static inline int of_property_read_u32_array(const struct device_node *np,
+<<<<<<< HEAD
 					     const char *propname,
 					     u32 *out_values, size_t sz)
+=======
+				char *propname, u32 *out_values, size_t sz)
+>>>>>>> f866528... include/linux/
 {
 	return -ENOSYS;
 }
 
 static inline int of_property_read_string(struct device_node *np,
+<<<<<<< HEAD
 					  const char *propname,
 					  const char **out_string)
+=======
+				char *propname, const char **out_string)
+>>>>>>> f866528... include/linux/
 {
 	return -ENOSYS;
 }
@@ -259,7 +276,11 @@ static inline int of_property_read_string(struct device_node *np,
 #endif /* CONFIG_OF */
 
 static inline int of_property_read_u32(const struct device_node *np,
+<<<<<<< HEAD
 				       const char *propname,
+=======
+				       char *propname,
+>>>>>>> f866528... include/linux/
 				       u32 *out_value)
 {
 	return of_property_read_u32_array(np, propname, out_value, 1);
