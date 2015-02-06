@@ -3,6 +3,10 @@ NVIDIA Tegra 2 GPIO controller
 Required properties:
 - compatible : "nvidia,tegra20-gpio"
 - #gpio-cells : Should be two. The first cell is the pin number and the
+<<<<<<< HEAD
   second cell is used to specify optional parameters:
   - bit 0 specifies polarity (0 for normal, 1 for inverted)
+=======
+  second cell is used to specify optional parameters (currently unused).
+>>>>>>> 5071753... Add files from diff --stat -p --filter=A HEAD ours
 - gpio-controller : Marks the device node as a GPIO controller.
