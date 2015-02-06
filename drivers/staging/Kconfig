@@ -24,6 +24,20 @@ menuconfig STAGING
 
 if STAGING
 
+config AB5500_SIM
+        bool "ST-Ericsson AB5500 SIM Interface driver"
+        depends on AB5500_CORE
+        help
+          SIM Interface driver provides interface to configure
+          various parameters of AB5550 SIM Level Shifter.Support provided are:
+          Configure Pull up on sim lines
+          Configure Operation Mode
+          Notify Sim Insert/Extract Interrupt
+
+source "drivers/staging/tty/Kconfig"
+
+source "drivers/staging/generic_serial/Kconfig"
+
 source "drivers/staging/et131x/Kconfig"
 
 source "drivers/staging/slicoss/Kconfig"
@@ -66,6 +80,8 @@ source "drivers/staging/rts_pstor/Kconfig"
 
 source "drivers/staging/frontier/Kconfig"
 
+source "drivers/staging/android/Kconfig"
+
 source "drivers/staging/pohmelfs/Kconfig"
 
 source "drivers/staging/phison/Kconfig"
@@ -96,6 +112,8 @@ source "drivers/staging/sep/Kconfig"
 
 source "drivers/staging/iio/Kconfig"
 
+source "drivers/staging/cs5535_gpio/Kconfig"
+
 source "drivers/staging/zram/Kconfig"
 
 source "drivers/staging/zcache/Kconfig"
@@ -114,6 +132,8 @@ source "drivers/staging/cxt1e1/Kconfig"
 
 source "drivers/staging/xgifb/Kconfig"
 
+source "drivers/staging/msm/Kconfig"
+
 source "drivers/staging/lirc/Kconfig"
 
 source "drivers/staging/easycap/Kconfig"
@@ -123,6 +143,8 @@ source "drivers/staging/solo6x10/Kconfig"
 source "drivers/staging/tidspbridge/Kconfig"
 
 source "drivers/staging/quickstart/Kconfig"
+
+source "drivers/staging/westbridge/Kconfig"
 
 source "drivers/staging/sbe-2t3e3/Kconfig"
 
@@ -150,4 +172,24 @@ source "drivers/staging/mei/Kconfig"
 
 source "drivers/staging/nvec/Kconfig"
 
+source "drivers/staging/cg2900/Kconfig"
+
+#source "drivers/staging/cw1200/Kconfig"
+
+source "drivers/staging/mmio/Kconfig"
+
+source "drivers/staging/nmf-cm/Kconfig"
+
+source "drivers/staging/camera_flash/Kconfig"
+
+source "drivers/staging/pasr/Kconfig"
+
+
+if CW1200
+config STE_WLAN 
+	bool "Enabling STE WLAN relevant feature"
+	default y
+	
+source "drivers/staging/etf_drivers/Kconfig"
+endif
 endif # STAGING
