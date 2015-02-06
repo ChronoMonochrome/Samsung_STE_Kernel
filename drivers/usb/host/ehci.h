@@ -88,8 +88,6 @@ struct ehci_hcd {			/* one per controller */
 	union ehci_shadow	*pshadow;	/* mirror hw periodic table */
 	int			next_uframe;	/* scan periodic, start here */
 	unsigned		periodic_sched;	/* periodic activity count */
-	unsigned		uframe_periodic_max; /* max periodic time per uframe */
-
 
 	/* list of itds & sitds completed while clock_frame was still active */
 	struct list_head	cached_itd_list;
@@ -139,6 +137,7 @@ struct ehci_hcd {			/* one per controller */
 	unsigned		fs_i_thresh:1;	/* Intel iso scheduling */
 	unsigned		use_dummy_qh:1;	/* AMD Frame List table quirk*/
 	unsigned		has_synopsys_hc_bug:1; /* Synopsys HC */
+	unsigned		frame_index_bug:1; /* MosChip (AKA NetMos) */
 
 	/* required for usb32 quirk */
 	#define OHCI_CTRL_HCFS          (3 << 6)
@@ -753,6 +752,22 @@ static inline void ehci_sync_mem()
 static inline void ehci_sync_mem()
 {
 }
+#endif
+
+/*-------------------------------------------------------------------------*/
+
+#ifdef CONFIG_PCI
+
+/* For working around the MosChip frame-index-register bug */
+static unsigned ehci_read_frame_index(struct ehci_hcd *ehci);
+
+#else
+
+static inline unsigned ehci_read_frame_index(struct ehci_hcd *ehci)
+{
+	return ehci_readl(ehci, &ehci->regs->frame_index);
+}
+
 #endif
 
 /*-------------------------------------------------------------------------*/

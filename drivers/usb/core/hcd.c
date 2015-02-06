@@ -337,17 +337,6 @@ static const u8 ss_rh_config_descriptor[] = {
 	0x02, 0x00   /* __le16 ss_wBytesPerInterval; 15 bits for max 15 ports */
 };
 
-/* authorized_default behaviour:
- * -1 is authorized for all devices except wireless (old behaviour)
- * 0 is unauthorized for all devices
- * 1 is authorized for all devices
- */
-static int authorized_default = -1;
-module_param(authorized_default, int, S_IRUGO|S_IWUSR);
-MODULE_PARM_DESC(authorized_default,
-		"Default USB device authorization: 0 is not authorized, 1 is "
-		"authorized, -1 is authorized except for wireless USB (default, "
-		"old behaviour");
 /*-------------------------------------------------------------------------*/
 
 /**
@@ -1402,11 +1391,10 @@ int usb_hcd_map_urb_for_dma(struct usb_hcd *hcd, struct urb *urb,
 					ret = -EAGAIN;
 				else
 					urb->transfer_flags |= URB_DMA_MAP_SG;
-				if (n != urb->num_sgs) {
-					urb->num_sgs = n;
+				urb->num_mapped_sgs = n;
+				if (n != urb->num_sgs)
 					urb->transfer_flags |=
 							URB_DMA_SG_COMBINED;
-				}
 			} else if (urb->sg) {
 				struct scatterlist *sg = urb->sg;
 				urb->transfer_dma = dma_map_page(
@@ -1779,6 +1767,8 @@ int usb_hcd_alloc_bandwidth(struct usb_device *udev,
 		struct usb_interface *iface = usb_ifnum_to_if(udev,
 				cur_alt->desc.bInterfaceNumber);
 
+		if (!iface)
+			return -EINVAL;
 		if (iface->resetting_device) {
 			/*
 			 * The USB core just reset the device, so the xHCI host
@@ -2386,11 +2376,7 @@ int usb_add_hcd(struct usb_hcd *hcd,
 
 	dev_info(hcd->self.controller, "%s\n", hcd->product_desc);
 
-	/* Keep old behaviour if authorized_default is not in [0, 1]. */
-	if (authorized_default < 0 || authorized_default > 1)
-		hcd->authorized_default = hcd->wireless? 0 : 1;
-	else
-		hcd->authorized_default = authorized_default;
+	hcd->authorized_default = hcd->wireless? 0 : 1;
 	set_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
 
 	/* HC is in reset state, but accessible.  Now do the one-time init,
@@ -2453,8 +2439,10 @@ int usb_add_hcd(struct usb_hcd *hcd,
 			&& device_can_wakeup(&hcd->self.root_hub->dev))
 		dev_dbg(hcd->self.controller, "supports USB remote wakeup\n");
 
-	/* enable irqs just before we start the controller */
-	if (usb_hcd_is_primary_hcd(hcd)) {
+	/* enable irqs just before we start the controller,
+	 * if the BIOS provides legacy PCI irqs.
+	 */
+	if (usb_hcd_is_primary_hcd(hcd) && irqnum) {
 		retval = usb_hcd_request_irqs(hcd, irqnum, irqflags);
 		if (retval)
 			goto err_request_irq;
