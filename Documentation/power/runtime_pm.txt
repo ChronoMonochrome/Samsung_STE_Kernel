@@ -585,10 +585,17 @@ are several reasons for this, including:
   * The device might need to be reset.
 
   * Even though the device was suspended, if its usage counter was > 0 then most
+<<<<<<< HEAD
     likely it would need a runtime resume in the near future anyway.
 
 If the device had been suspended before the system suspend began and it's
 brought back to full power during resume, then its runtime PM status will have
+=======
+    likely it would need a run-time resume in the near future anyway.
+
+If the device had been suspended before the system suspend began and it's
+brought back to full power during resume, then its run-time PM status will have
+>>>>>>> 078d28e... Documentation.patch
 to be updated to reflect the actual post-system sleep status.  The way to do
 this is:
 
@@ -596,9 +603,15 @@ this is:
 	pm_runtime_set_active(dev);
 	pm_runtime_enable(dev);
 
+<<<<<<< HEAD
 The PM core always increments the runtime usage counter before calling the
 ->suspend() callback and decrements it after calling the ->resume() callback.
 Hence disabling runtime PM temporarily like this will not cause any runtime
+=======
+The PM core always increments the run-time usage counter before calling the
+->suspend() callback and decrements it after calling the ->resume() callback.
+Hence disabling run-time PM temporarily like this will not cause any runtime
+>>>>>>> 078d28e... Documentation.patch
 suspend attempts to be permanently lost.  If the usage count goes to zero
 following the return of the ->resume() callback, the ->runtime_idle() callback
 will be invoked as usual.

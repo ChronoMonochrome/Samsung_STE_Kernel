@@ -14,9 +14,18 @@ DOCBOOKS := z8530book.xml mcabook.xml device-drivers.xml \
 	    genericirq.xml s390-drivers.xml uio-howto.xml scsi.xml \
 	    80211.xml debugobjects.xml sh.xml regulator.xml \
 	    alsa-driver-api.xml writing-an-alsa-driver.xml \
+<<<<<<< HEAD
 	    tracepoint.xml drm.xml media_api.xml
 
 include $(srctree)/Documentation/DocBook/media/Makefile
+=======
+	    tracepoint.xml media.xml drm.xml \
+	    shrm.xml touchp.xml \
+	    tc_keypad.xml prcmu-fw-api.xml cg2900_fm_radio.xml \
+	    synaptics_rmi4_touchp.xml db5500_keypad.xml \
+	    u5500_LogicalMailbox.xml cg2900.xml\
+	    lsm303dlh.xml ske_keypad.xml lps001wp_prs.xml ste_timed_vibra.xml ste_ff_vibra.xml ux500_usb.xml
+>>>>>>> 657f8f3... Documentation.patch
 
 ###
 # The build process is as follows (targets):
