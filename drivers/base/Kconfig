@@ -168,7 +168,4 @@ config SYS_HYPERVISOR
 	bool
 	default n
 
-config SYS_SOC
-	bool
-
 endmenu
