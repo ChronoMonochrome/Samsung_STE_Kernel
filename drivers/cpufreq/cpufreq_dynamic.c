@@ -1192,12 +1192,6 @@ static int __init cpufreq_gov_dbs_init(void)
 		min_sampling_rate =
 			MIN_SAMPLING_RATE_RATIO * jiffies_to_usecs(10);
 	}
-	
-	if (prcmu_qos_add_requirement(PRCMU_QOS_APE_OPP, "APEBOOST", PRCMU_QOS_DEFAULT_VALUE))
-		pr_err("pcrm_qos_add APE failed\n");
-	
-	if (prcmu_qos_add_requirement(PRCMU_QOS_DDR_OPP, "DDRBOOST", PRCMU_QOS_DEFAULT_VALUE)) 
-		pr_err("pcrm_qos_add DDR failed\n");
 
 	INIT_WORK(&resume_work, cpufreq_dynamic_resume);
 	//INIT_WORK(&suspend_work, cpufreq_dynamic_suspend);
