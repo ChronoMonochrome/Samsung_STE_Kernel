@@ -181,10 +181,6 @@ static struct dbs_tuners {
 	.suspend_max_freq = 600000,
 };
 
-static struct workqueue_struct *dbs_wq;
-//static struct work_struct suspend_work;
-static struct work_struct resume_work;
-
 static unsigned int delay;
 module_param(delay, uint, 0644);
 
@@ -555,6 +551,37 @@ static struct attribute_group dbs_attr_group = {
 
 /************************** sysfs end ************************/
 
+static bool input_boosted = false;
+
+static void input_boost_thread(struct work_struct *requirements_update_work)
+{
+	if (!input_boosted) {
+		if (ape_boost)
+			prcmu_qos_update_requirement(PRCMU_QOS_APE_OPP, "APEBOOST", ape_opp);
+		
+		if (ddr_boost)
+			prcmu_qos_update_requirement(PRCMU_QOS_DDR_OPP,	"DDRBOOST", ddr_opp);
+		
+		//pr_err("[interactive] input boost \n");
+		input_boosted = true;
+	}	
+}
+static DECLARE_WORK(input_boost_work, input_boost_thread);
+
+static void input_unboost_thread(struct work_struct *requirements_update_work)
+{
+	if (input_boosted) { 
+		if (ape_boost)
+			prcmu_qos_update_requirement(PRCMU_QOS_APE_OPP, "APEBOOST", PRCMU_QOS_DEFAULT_VALUE);
+		if (ddr_boost)
+			prcmu_qos_update_requirement(PRCMU_QOS_DDR_OPP, "DDRBOOST", PRCMU_QOS_DEFAULT_VALUE);
+		
+		//pr_err("[interactive] unboosted \n");
+		input_boosted = false;
+	}
+}
+static DECLARE_WORK(input_unboost_work, input_unboost_thread);
+
 static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 {
 	struct cpufreq_policy *policy = this_dbs_info->cur_policy;
@@ -661,12 +688,9 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	}
 
 	/* frequency changing logic starts here */
-
-	/* input boost logic
-	 */
 	if (boosted) {
 		unsigned int freq_target;
-		if (suspend) {
+	        if (suspend) {
 			if (dbs_tuners_ins.max_non_oc_freq) {
 				//TODO optimize this
 				//this is to avoid a situation where some process is spinning in the background
@@ -687,11 +711,8 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 		if (policy->cur < freq_target) {
 			pr_debug("Boosting freq from %d to %d, dt=%llu us\n", this_dbs_info->requested_freq, freq_target, ktime_to_us(ktime_get())-last_input_time);
 
-			if (ape_boost)
-				prcmu_qos_update_requirement(PRCMU_QOS_APE_OPP, "APEBOOST", ape_opp);
-		
-			if (ddr_boost)
-				prcmu_qos_update_requirement(PRCMU_QOS_DDR_OPP,	"DDRBOOST", ddr_opp);
+			if (!input_boosted)
+				schedule_work(&input_boost_work);
 			
 			this_dbs_info->requested_freq = freq_target;
 			__cpufreq_driver_target(policy, freq_target, CPUFREQ_RELATION_H);
@@ -703,11 +724,9 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	}
 	
 	if (!boosted) {
-		prcmu_qos_update_requirement(PRCMU_QOS_APE_OPP, "APEBOOST", PRCMU_QOS_DEFAULT_VALUE);	
-		prcmu_qos_update_requirement(PRCMU_QOS_DDR_OPP, "DDRBOOST", PRCMU_QOS_DEFAULT_VALUE);
+		if (input_boosted)
+			schedule_work(&input_unboost_work);
 	}
-
-	/* calculate turbo boost limits */
 
 	if (active && dbs_tuners_ins.max_non_oc_freq && dbs_tuners_ins.oc_freq_boost_ms) {
 		if (this_dbs_info->oc_boost_cycles == 0)
@@ -719,8 +738,6 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 			pr_debug("oc limit: %d (%d), freq_delta: %d, soft: %d, hard: %d",
 				this_dbs_info->oc_boost_cycles, dbs_tuners_ins._oc_limit, oc_freq_delta, max_freq_soft, max_freq_hard);
 	}
-
-	/* calculate and enforce frequency hard limit */
 
 	if (unlikely(max_freq_hard > policy->max))
 		max_freq_hard = policy->max;
@@ -749,7 +766,6 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 
 		this_dbs_info->standby_counter = 0;
 
-		/* frequency increase delays */
 		if (suspend) {
 			if (++(this_dbs_info->sampling_up_counter) < dbs_tuners_ins.suspend_sampling_up_factor)
 				return;
@@ -776,13 +792,13 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 		return;
 	}
 
-
-	/* if the load fell below up_threshold, reset frequency increase delay counter */
 	this_dbs_info->sampling_up_counter = 0;
 
-	/* standby mode activation logic */
+	/*
+	 * if we cannot reduce the frequency anymore, break out early
+	 */
 	if (policy->cur <= dbs_tuners_ins._standby_threshold_freq) {
-		if (active && !boosted) {
+		if (active) {
 			if (++(this_dbs_info->standby_counter) >= dbs_tuners_ins.standby_delay_factor) {
 				standby = true;
 				pr_debug("Entering standby. dt=%lu ms", (unsigned long int)(ktime_to_us(ktime_get())-last_input_time)/1000);
@@ -792,7 +808,6 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 			//TODO move all state management code to functions and just call go_active, go_suspend etc...
 			delay = dbs_tuners_ins.standby_sampling_rate;
 		}
-		/* if we cannot reduce the frequency anymore, break out early */
 		if (policy->cur == policy->min) return;
 	}
 	/*
@@ -848,7 +863,7 @@ static void do_dbs_timer(struct work_struct *work)
 	dbs_check_cpu(dbs_info);
 
 	/* We want all CPUs to do sampling nearly on same jiffy */
-	queue_delayed_work_on(cpu, dbs_wq, &dbs_info->work, delay - jiffies % delay);
+	schedule_delayed_work_on(cpu, &dbs_info->work, delay - jiffies % delay);
 	mutex_unlock(&dbs_info->timer_mutex);
 }
 
@@ -861,7 +876,7 @@ static inline void dbs_timer_init(struct cpu_dbs_info_s *dbs_info)
 	INIT_DELAYED_WORK_DEFERRABLE(&dbs_info->work, do_dbs_timer);
 
 	/* We want all CPUs to do sampling nearly on same jiffy */
-	queue_delayed_work_on(dbs_info->cpu, dbs_wq, &dbs_info->work, delay - jiffies % delay);
+	schedule_delayed_work_on(dbs_info->cpu, &dbs_info->work, delay - jiffies % delay);
 }
 
 static inline void dbs_timer_exit(struct cpu_dbs_info_s *dbs_info)
@@ -871,7 +886,13 @@ static inline void dbs_timer_exit(struct cpu_dbs_info_s *dbs_info)
 }
 
 /* early_suspend */
-static void cpufreq_dynamic_resume(struct work_struct *work)
+static void dbs_suspend(struct early_suspend *handler)
+{
+	suspend = true;
+	delay = dbs_tuners_ins.suspend_sampling_rate;
+}
+
+static void dbs_resume(struct early_suspend *handler)
 {
 	//unsigned int cpu;
 	struct cpu_dbs_info_s *this_dbs_info = &per_cpu(cs_cpu_dbs_info, 0);
@@ -897,24 +918,6 @@ static void cpufreq_dynamic_resume(struct work_struct *work)
 		this_dbs_info = &per_cpu(cs_cpu_dbs_info, cpu);
 		this_dbs_info->requested_freq = policy->max;
 	}
-}
-
-/*
-static void cpufreq_dynamic_suspend(struct work_struct *work)
-{
-	//use this func when there's something useful to do here ;)
-}
-*/
-static void dbs_suspend(struct early_suspend *handler)
-{
-	//schedule_work(&suspend_work);
-	suspend = true;
-	delay = dbs_tuners_ins.suspend_sampling_rate;
-}
-
-static void dbs_resume(struct early_suspend *handler)
-{
-	queue_work(dbs_wq, &resume_work);
 }
 
 static struct early_suspend dbs_early_suspend = {
@@ -951,7 +954,7 @@ static void hotplug_input_event(struct input_handle *handle,
 	last_input_time = now;
 
 	if (__cancel_delayed_work(&dbs_info->work) > 0) {
-		queue_work_on(dbs_info->cpu, dbs_wq, &dbs_info->work.work);
+		schedule_delayed_work_on(dbs_info->cpu, &dbs_info->work, 0);
 	}
 
 }
@@ -1091,7 +1094,7 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 				usecs_to_jiffies(max(min_sampling_rate,
 				    latency * LATENCY_MULTIPLIER));
 			*/
-			dbs_tuners_ins.sampling_rate = max(dbs_tuners_ins.sampling_rate, (unsigned int) usecs_to_jiffies(min_sampling_rate));
+			dbs_tuners_ins.sampling_rate = max(dbs_tuners_ins.sampling_rate, usecs_to_jiffies(min_sampling_rate));
 			dbs_tuners_ins.standby_sampling_rate = max(dbs_tuners_ins.standby_sampling_rate, dbs_tuners_ins.sampling_rate);
 			dbs_tuners_ins.suspend_sampling_rate = max(dbs_tuners_ins.suspend_sampling_rate, dbs_tuners_ins.sampling_rate);
 			recalculate_freq_limits();
@@ -1193,21 +1196,12 @@ static int __init cpufreq_gov_dbs_init(void)
 			MIN_SAMPLING_RATE_RATIO * jiffies_to_usecs(10);
 	}
 
-	INIT_WORK(&resume_work, cpufreq_dynamic_resume);
-	//INIT_WORK(&suspend_work, cpufreq_dynamic_suspend);
-	dbs_wq = alloc_workqueue("dynamic_dbs_wq", WQ_HIGHPRI, 0);
-	if (!dbs_wq) {
-		printk(KERN_ERR "Failed to create dynamic_dbs_wq workqueue\n");
-		return -EFAULT;
-	}
-
 	return cpufreq_register_governor(&cpufreq_gov_dynamic);
 }
 
 static void __exit cpufreq_gov_dbs_exit(void)
 {
 	cpufreq_unregister_governor(&cpufreq_gov_dynamic);
-	destroy_workqueue(dbs_wq);
 }
 
 
