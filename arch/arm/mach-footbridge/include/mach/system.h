@@ -24,7 +24,7 @@ static inline void arch_reset(char mode, const char *cmd)
 		/*
 		 * Jump into the ROM
 		 */
-		soft_restart(0x41000000);
+		cpu_reset(0x41000000);
 	} else {
 		if (machine_is_netwinder()) {
 			/* open up the SuperIO chip

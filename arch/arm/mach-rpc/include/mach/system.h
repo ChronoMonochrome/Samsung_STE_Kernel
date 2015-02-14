@@ -23,5 +23,5 @@ static inline void arch_reset(char mode, const char *cmd)
 	/*
 	 * Jump into the ROM
 	 */
-	soft_restart(0);
+	cpu_reset(0);
 }

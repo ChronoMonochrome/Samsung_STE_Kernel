@@ -19,7 +19,7 @@ static void
 arch_reset(char mode, const char *cmd)
 {
 	if (mode == 's') {
-		soft_restart(0);
+		cpu_reset(0);
 	}
 
 	if (s3c24xx_reset_hook)
@@ -28,5 +28,5 @@ arch_reset(char mode, const char *cmd)
 	arch_wdt_reset();
 
 	/* we'll take a jump through zero as a poor second */
-	soft_restart(0);
+	cpu_reset(0);
 }
