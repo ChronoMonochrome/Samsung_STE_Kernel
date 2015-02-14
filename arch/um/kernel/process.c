@@ -245,10 +245,10 @@ void default_idle(void)
 		if (need_resched())
 			schedule();
 
-		tick_nohz_idle_enter_norcu();
+		tick_nohz_idle_enter();
 		nsecs = disable_timer();
 		idle_sleep(nsecs);
-		tick_nohz_idle_exit_norcu();
+		tick_nohz_idle_exit();
 	}
 }
 

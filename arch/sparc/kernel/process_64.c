@@ -95,12 +95,12 @@ void cpu_idle(void)
 	set_thread_flag(TIF_POLLING_NRFLAG);
 
 	while(1) {
-		tick_nohz_idle_enter_norcu();
+		tick_nohz_idle_enter();
 
 		while (!need_resched() && !cpu_is_offline(cpu))
 			sparc64_yield(cpu);
 
-		tick_nohz_idle_exit_norcu();
+		tick_nohz_idle_exit();
 
 		preempt_enable_no_resched();
 

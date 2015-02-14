@@ -90,10 +90,10 @@ static void default_idle(void)
 void cpu_idle(void)
 {
 	for (;;) {
-		tick_nohz_idle_enter_norcu();
+		tick_nohz_idle_enter();
 		while (!need_resched())
 			default_idle();
-		tick_nohz_idle_exit_norcu();
+		tick_nohz_idle_exit();
 		preempt_enable_no_resched();
 		schedule();
 		preempt_disable();
