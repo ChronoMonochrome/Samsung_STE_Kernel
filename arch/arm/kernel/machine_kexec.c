@@ -16,7 +16,7 @@
 extern const unsigned char relocate_new_kernel[];
 extern const unsigned int relocate_new_kernel_size;
 
-extern void setup_mm_for_reboot(void);
+extern void setup_mm_for_reboot(char mode);
 
 extern unsigned long kexec_start_address;
 extern unsigned long kexec_indirection_page;
@@ -116,7 +116,7 @@ void machine_kexec(struct kimage *image)
 		kexec_reinit();
 	local_irq_disable();
 	local_fiq_disable();
-	setup_mm_for_reboot();
+	setup_mm_for_reboot(0); /* mode is not used, so just pass 0*/
 	flush_cache_all();
 	outer_flush_all();
 	outer_disable();
