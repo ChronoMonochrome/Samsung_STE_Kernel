@@ -10,7 +10,7 @@
 #ifndef __ASM_ARM_LOCALTIMER_H
 #define __ASM_ARM_LOCALTIMER_H
 
-#include <linux/errno.h>
+#include <linux/interrupt.h>
 
 struct clock_event_device;
 
@@ -20,6 +20,13 @@ struct clock_event_device;
 void percpu_timer_setup(void);
 
 #ifdef CONFIG_LOCAL_TIMERS
+
+#ifdef CONFIG_HAVE_ARM_TWD
+
+#include "smp_twd.h"
+
+#endif
+
 /*
  * Stop the local timer
  */
