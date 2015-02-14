@@ -34,12 +34,10 @@ void cpu_idle(void)
 {
 	/* endless idle loop with no priority at all */
 	while (1) {
-		tick_nohz_idle_enter();
-		rcu_idle_enter();
+		tick_nohz_idle_enter_norcu();
 		while (!need_resched())
 			cpu_idle_sleep();
-		rcu_idle_exit();
-		tick_nohz_idle_exit();
+		tick_nohz_idle_exit_norcu();
 		preempt_enable_no_resched();
 		schedule();
 		preempt_disable();
