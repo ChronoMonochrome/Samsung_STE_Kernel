@@ -387,7 +387,10 @@ static noinline void __init_refok rest_init(void)
 	 * at least once to get things moving:
 	 */
 	init_idle_bootup_task(current);
-	schedule_preempt_disabled();
+	preempt_enable_no_resched();
+	schedule();
+	preempt_disable();
+
 	/* Call into cpu_idle with preempt disabled */
 	cpu_idle();
 }
