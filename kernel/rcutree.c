@@ -159,34 +159,32 @@ static int rcu_gp_in_progress(struct rcu_state *rsp)
  * Note a quiescent state.  Because we do not need to know
  * how many quiescent states passed, just if there was at least
  * one since the start of the grace period, this just sets a flag.
- * The caller must have disabled preemption.
  */
 void rcu_sched_qs(int cpu)
 {
 	struct rcu_data *rdp = &per_cpu(rcu_sched_data, cpu);
 
-	rdp->passed_quiesce_gpnum = rdp->gpnum;
+	rdp->passed_quiesc_completed = rdp->gpnum - 1;
 	barrier();
-	if (rdp->passed_quiesce == 0)
+	if (rdp->passed_quiesc == 0)
 		trace_rcu_grace_period("rcu_sched", rdp->gpnum, "cpuqs");
-	rdp->passed_quiesce = 1;
+	rdp->passed_quiesc = 1;
 }
 
 void rcu_bh_qs(int cpu)
 {
 	struct rcu_data *rdp = &per_cpu(rcu_bh_data, cpu);
 
-	rdp->passed_quiesce_gpnum = rdp->gpnum;
+	rdp->passed_quiesc_completed = rdp->gpnum - 1;
 	barrier();
-	if (rdp->passed_quiesce == 0)
+	if (rdp->passed_quiesc == 0)
 		trace_rcu_grace_period("rcu_bh", rdp->gpnum, "cpuqs");
-	rdp->passed_quiesce = 1;
+	rdp->passed_quiesc = 1;
 }
 
 /*
  * Note a context switch.  This is a quiescent state for RCU-sched,
  * and requires special handling for preemptible RCU.
- * The caller must have disabled preemption.
  */
 void rcu_note_context_switch(int cpu)
 {
@@ -696,7 +694,7 @@ static void __note_new_gpnum(struct rcu_state *rsp, struct rcu_node *rnp, struct
 		trace_rcu_grace_period(rsp->name, rdp->gpnum, "cpustart");
 		if (rnp->qsmask & rdp->grpmask) {
 			rdp->qs_pending = 1;
-			rdp->passed_quiesce = 0;
+			rdp->passed_quiesc = 0;
 		} else
 			rdp->qs_pending = 0;
 	}
@@ -1029,7 +1027,7 @@ rcu_report_qs_rnp(unsigned long mask, struct rcu_state *rsp,
  * based on quiescent states detected in an earlier grace period!
  */
 static void
-rcu_report_qs_rdp(int cpu, struct rcu_state *rsp, struct rcu_data *rdp, long lastgp)
+rcu_report_qs_rdp(int cpu, struct rcu_state *rsp, struct rcu_data *rdp, long lastcomp)
 {
 	unsigned long flags;
 	unsigned long mask;
@@ -1037,15 +1035,17 @@ rcu_report_qs_rdp(int cpu, struct rcu_state *rsp, struct rcu_data *rdp, long las
 
 	rnp = rdp->mynode;
 	raw_spin_lock_irqsave(&rnp->lock, flags);
-	if (lastgp != rnp->gpnum || rnp->completed == rnp->gpnum) {
+	if (lastcomp != rnp->completed) {
 
 		/*
-		 * The grace period in which this quiescent state was
-		 * recorded has ended, so don't report it upwards.
-		 * We will instead need a new quiescent state that lies
-		 * within the current grace period.
+		 * Someone beat us to it for this grace period, so leave.
+		 * The race with GP start is resolved by the fact that we
+		 * hold the leaf rcu_node lock, so that the per-CPU bits
+		 * cannot yet be initialized -- so we would simply find our
+		 * CPU's bit already cleared in rcu_report_qs_rnp() if this
+		 * race occurred.
 		 */
-		rdp->passed_quiesce = 0;	/* need qs for new gp. */
+		rdp->passed_quiesc = 0;	/* try again later! */
 		raw_spin_unlock_irqrestore(&rnp->lock, flags);
 		return;
 	}
@@ -1089,14 +1089,14 @@ rcu_check_quiescent_state(struct rcu_state *rsp, struct rcu_data *rdp)
 	 * Was there a quiescent state since the beginning of the grace
 	 * period? If no, then exit and wait for the next call.
 	 */
-	if (!rdp->passed_quiesce)
+	if (!rdp->passed_quiesc)
 		return;
 
 	/*
 	 * Tell RCU we are done (but rcu_report_qs_rdp() will be the
 	 * judge of that).
 	 */
-	rcu_report_qs_rdp(rdp->cpu, rsp, rdp, rdp->passed_quiesce_gpnum);
+	rcu_report_qs_rdp(rdp->cpu, rsp, rdp, rdp->passed_quiesc_completed);
 }
 
 #ifdef CONFIG_HOTPLUG_CPU
@@ -1712,7 +1712,7 @@ static int __rcu_pending(struct rcu_state *rsp, struct rcu_data *rdp)
 	check_cpu_stall(rsp, rdp);
 
 	/* Is the RCU core waiting for a quiescent state from this CPU? */
-	if (rdp->qs_pending && !rdp->passed_quiesce) {
+	if (rdp->qs_pending && !rdp->passed_quiesc) {
 
 		/*
 		 * If force_quiescent_state() coming soon and this CPU
@@ -1724,7 +1724,7 @@ static int __rcu_pending(struct rcu_state *rsp, struct rcu_data *rdp)
 		    ULONG_CMP_LT(ACCESS_ONCE(rsp->jiffies_force_qs) - 1,
 				 jiffies))
 			set_need_resched();
-	} else if (rdp->qs_pending && rdp->passed_quiesce) {
+	} else if (rdp->qs_pending && rdp->passed_quiesc) {
 		rdp->n_rp_report_qs++;
 		return 1;
 	}
@@ -1907,7 +1907,7 @@ rcu_init_percpu_data(int cpu, struct rcu_state *rsp, int preemptible)
 
 	/* Set up local state, ensuring consistent view of global state. */
 	raw_spin_lock_irqsave(&rnp->lock, flags);
-	rdp->passed_quiesce = 0;  /* We could be racing with new GP, */
+	rdp->passed_quiesc = 0;  /* We could be racing with new GP, */
 	rdp->qs_pending = 1;	 /*  so set up to respond to current GP. */
 	rdp->beenonline = 1;	 /* We have now been online. */
 	rdp->preemptible = preemptible;
@@ -1935,7 +1935,7 @@ rcu_init_percpu_data(int cpu, struct rcu_state *rsp, int preemptible)
 		if (rnp == rdp->mynode) {
 			rdp->gpnum = rnp->completed; /* if GP in progress... */
 			rdp->completed = rnp->completed;
-			rdp->passed_quiesce_gpnum = rnp->gpnum - 1;
+			rdp->passed_quiesc_completed = rnp->completed - 1;
 			trace_rcu_grace_period(rsp->name, rdp->gpnum, "cpuonl");
 		}
 		raw_spin_unlock(&rnp->lock); /* irqs already disabled. */
