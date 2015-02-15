@@ -49,6 +49,7 @@ extern void __aeabi_ulcmp(void);
 
 extern void fpundefinstr(void);
 
+
 EXPORT_SYMBOL(__backtrace);
 
 	/* networking */
