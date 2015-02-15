@@ -457,7 +457,9 @@ asmlinkage void __exception_irq_entry do_local_timer(struct pt_regs *regs)
 
 	if (local_timer_ack()) {
 		__inc_irq_stat(cpu, local_timer_irqs);
+		irq_enter();
 		ipi_timer();
+		irq_exit();
 	}
 
 	set_irq_regs(old_regs);
@@ -549,6 +551,9 @@ static void ipi_cpu_stop(unsigned int cpu)
 
 	local_fiq_disable();
 	local_irq_disable();
+
+	flush_cache_all();
+	local_flush_tlb_all();
 
 	while (1)
 		cpu_relax();
