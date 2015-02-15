@@ -67,328 +67,12 @@
 
 #define branch_displacement(insn) sign_extend(((insn) & 0xffffff) << 2, 25)
 
-#define is_r15(insn, bitpos) (((insn) & (0xf << bitpos)) == (0xf << bitpos))
-
-/*
- * Test if load/store instructions writeback the address register.
- * if P (bit 24) == 0 or W (bit 21) == 1
- */
-#define is_writeback(insn) ((insn ^ 0x01000000) & 0x01200000)
-
-#define PSR_fs	(PSR_f|PSR_s)
-
-#define KPROBE_RETURN_INSTRUCTION	0xe1a0f00e	/* mov pc, lr */
-
-typedef long (insn_0arg_fn_t)(void);
-typedef long (insn_1arg_fn_t)(long);
-typedef long (insn_2arg_fn_t)(long, long);
-typedef long (insn_3arg_fn_t)(long, long, long);
-typedef long (insn_4arg_fn_t)(long, long, long, long);
-typedef long long (insn_llret_0arg_fn_t)(void);
-typedef long long (insn_llret_3arg_fn_t)(long, long, long);
-typedef long long (insn_llret_4arg_fn_t)(long, long, long, long);
-
-union reg_pair {
-	long long	dr;
-#ifdef __LITTLE_ENDIAN
-	struct { long	r0, r1; };
+#if  __LINUX_ARM_ARCH__ >= 6
+#define BLX(reg)	"blx	"reg"		\n\t"
 #else
-	struct { long	r1, r0; };
+#define BLX(reg)	"mov	lr, pc		\n\t"	\
+			"mov	pc, "reg"	\n\t"
 #endif
-};
-
-/*
- * For STR and STM instructions, an ARM core may choose to use either
- * a +8 or a +12 displacement from the current instruction's address.
- * Whichever value is chosen for a given core, it must be the same for
- * both instructions and may not change.  This function measures it.
- */
-
-static int str_pc_offset;
-
-static void __init find_str_pc_offset(void)
-{
-	int addr, scratch, ret;
-
-	__asm__ (
-		"sub	%[ret], pc, #4		\n\t"
-		"str	pc, %[addr]		\n\t"
-		"ldr	%[scr], %[addr]		\n\t"
-		"sub	%[ret], %[scr], %[ret]	\n\t"
-		: [ret] "=r" (ret), [scr] "=r" (scratch), [addr] "+m" (addr));
-
-	str_pc_offset = ret;
-}
-
-/*
- * The insnslot_?arg_r[w]flags() functions below are to keep the
- * msr -> *fn -> mrs instruction sequences indivisible so that
- * the state of the CPSR flags aren't inadvertently modified
- * just before or just after the call.
- */
-
-static inline long __kprobes
-insnslot_0arg_rflags(long cpsr, insn_0arg_fn_t *fn)
-{
-	register long ret asm("r0");
-
-	__asm__ __volatile__ (
-		"msr	cpsr_fs, %[cpsr]	\n\t"
-		"mov	lr, pc			\n\t"
-		"mov	pc, %[fn]		\n\t"
-		: "=r" (ret)
-		: [cpsr] "r" (cpsr), [fn] "r" (fn)
-		: "lr", "cc"
-	);
-	return ret;
-}
-
-static inline long long __kprobes
-insnslot_llret_0arg_rflags(long cpsr, insn_llret_0arg_fn_t *fn)
-{
-	register long ret0 asm("r0");
-	register long ret1 asm("r1");
-	union reg_pair fnr;
-
-	__asm__ __volatile__ (
-		"msr	cpsr_fs, %[cpsr]	\n\t"
-		"mov	lr, pc			\n\t"
-		"mov	pc, %[fn]		\n\t"
-		: "=r" (ret0), "=r" (ret1)
-		: [cpsr] "r" (cpsr), [fn] "r" (fn)
-		: "lr", "cc"
-	);
-	fnr.r0 = ret0;
-	fnr.r1 = ret1;
-	return fnr.dr;
-}
-
-static inline long __kprobes
-insnslot_1arg_rflags(long r0, long cpsr, insn_1arg_fn_t *fn)
-{
-	register long rr0 asm("r0") = r0;
-	register long ret asm("r0");
-
-	__asm__ __volatile__ (
-		"msr	cpsr_fs, %[cpsr]	\n\t"
-		"mov	lr, pc			\n\t"
-		"mov	pc, %[fn]		\n\t"
-		: "=r" (ret)
-		: "0" (rr0), [cpsr] "r" (cpsr), [fn] "r" (fn)
-		: "lr", "cc"
-	);
-	return ret;
-}
-
-static inline long __kprobes
-insnslot_2arg_rflags(long r0, long r1, long cpsr, insn_2arg_fn_t *fn)
-{
-	register long rr0 asm("r0") = r0;
-	register long rr1 asm("r1") = r1;
-	register long ret asm("r0");
-
-	__asm__ __volatile__ (
-		"msr	cpsr_fs, %[cpsr]	\n\t"
-		"mov	lr, pc			\n\t"
-		"mov	pc, %[fn]		\n\t"
-		: "=r" (ret)
-		: "0" (rr0), "r" (rr1),
-		  [cpsr] "r" (cpsr), [fn] "r" (fn)
-		: "lr", "cc"
-	);
-	return ret;
-}
-
-static inline long __kprobes
-insnslot_3arg_rflags(long r0, long r1, long r2, long cpsr, insn_3arg_fn_t *fn)
-{
-	register long rr0 asm("r0") = r0;
-	register long rr1 asm("r1") = r1;
-	register long rr2 asm("r2") = r2;
-	register long ret asm("r0");
-
-	__asm__ __volatile__ (
-		"msr	cpsr_fs, %[cpsr]	\n\t"
-		"mov	lr, pc			\n\t"
-		"mov	pc, %[fn]		\n\t"
-		: "=r" (ret)
-		: "0" (rr0), "r" (rr1), "r" (rr2),
-		  [cpsr] "r" (cpsr), [fn] "r" (fn)
-		: "lr", "cc"
-	);
-	return ret;
-}
-
-static inline long long __kprobes
-insnslot_llret_3arg_rflags(long r0, long r1, long r2, long cpsr,
-			   insn_llret_3arg_fn_t *fn)
-{
-	register long rr0 asm("r0") = r0;
-	register long rr1 asm("r1") = r1;
-	register long rr2 asm("r2") = r2;
-	register long ret0 asm("r0");
-	register long ret1 asm("r1");
-	union reg_pair fnr;
-
-	__asm__ __volatile__ (
-		"msr	cpsr_fs, %[cpsr]	\n\t"
-		"mov	lr, pc			\n\t"
-		"mov	pc, %[fn]		\n\t"
-		: "=r" (ret0), "=r" (ret1)
-		: "0" (rr0), "r" (rr1), "r" (rr2),
-		  [cpsr] "r" (cpsr), [fn] "r" (fn)
-		: "lr", "cc"
-	);
-	fnr.r0 = ret0;
-	fnr.r1 = ret1;
-	return fnr.dr;
-}
-
-static inline long __kprobes
-insnslot_4arg_rflags(long r0, long r1, long r2, long r3, long cpsr,
-		     insn_4arg_fn_t *fn)
-{
-	register long rr0 asm("r0") = r0;
-	register long rr1 asm("r1") = r1;
-	register long rr2 asm("r2") = r2;
-	register long rr3 asm("r3") = r3;
-	register long ret asm("r0");
-
-	__asm__ __volatile__ (
-		"msr	cpsr_fs, %[cpsr]	\n\t"
-		"mov	lr, pc			\n\t"
-		"mov	pc, %[fn]		\n\t"
-		: "=r" (ret)
-		: "0" (rr0), "r" (rr1), "r" (rr2), "r" (rr3),
-		  [cpsr] "r" (cpsr), [fn] "r" (fn)
-		: "lr", "cc"
-	);
-	return ret;
-}
-
-static inline long __kprobes
-insnslot_1arg_rwflags(long r0, long *cpsr, insn_1arg_fn_t *fn)
-{
-	register long rr0 asm("r0") = r0;
-	register long ret asm("r0");
-	long oldcpsr = *cpsr;
-	long newcpsr;
-
-	__asm__ __volatile__ (
-		"msr	cpsr_fs, %[oldcpsr]	\n\t"
-		"mov	lr, pc			\n\t"
-		"mov	pc, %[fn]		\n\t"
-		"mrs	%[newcpsr], cpsr	\n\t"
-		: "=r" (ret), [newcpsr] "=r" (newcpsr)
-		: "0" (rr0), [oldcpsr] "r" (oldcpsr), [fn] "r" (fn)
-		: "lr", "cc"
-	);
-	*cpsr = (oldcpsr & ~PSR_fs) | (newcpsr & PSR_fs);
-	return ret;
-}
-
-static inline long __kprobes
-insnslot_2arg_rwflags(long r0, long r1, long *cpsr, insn_2arg_fn_t *fn)
-{
-	register long rr0 asm("r0") = r0;
-	register long rr1 asm("r1") = r1;
-	register long ret asm("r0");
-	long oldcpsr = *cpsr;
-	long newcpsr;
-
-	__asm__ __volatile__ (
-		"msr	cpsr_fs, %[oldcpsr]	\n\t"
-		"mov	lr, pc			\n\t"
-		"mov	pc, %[fn]		\n\t"
-		"mrs	%[newcpsr], cpsr	\n\t"
-		: "=r" (ret), [newcpsr] "=r" (newcpsr)
-		: "0" (rr0), "r" (rr1), [oldcpsr] "r" (oldcpsr), [fn] "r" (fn)
-		: "lr", "cc"
-	);
-	*cpsr = (oldcpsr & ~PSR_fs) | (newcpsr & PSR_fs);
-	return ret;
-}
-
-static inline long __kprobes
-insnslot_3arg_rwflags(long r0, long r1, long r2, long *cpsr,
-		      insn_3arg_fn_t *fn)
-{
-	register long rr0 asm("r0") = r0;
-	register long rr1 asm("r1") = r1;
-	register long rr2 asm("r2") = r2;
-	register long ret asm("r0");
-	long oldcpsr = *cpsr;
-	long newcpsr;
-
-	__asm__ __volatile__ (
-		"msr	cpsr_fs, %[oldcpsr]	\n\t"
-		"mov	lr, pc			\n\t"
-		"mov	pc, %[fn]		\n\t"
-		"mrs	%[newcpsr], cpsr	\n\t"
-		: "=r" (ret), [newcpsr] "=r" (newcpsr)
-		: "0" (rr0), "r" (rr1), "r" (rr2),
-		  [oldcpsr] "r" (oldcpsr), [fn] "r" (fn)
-		: "lr", "cc"
-	);
-	*cpsr = (oldcpsr & ~PSR_fs) | (newcpsr & PSR_fs);
-	return ret;
-}
-
-static inline long __kprobes
-insnslot_4arg_rwflags(long r0, long r1, long r2, long r3, long *cpsr,
-		      insn_4arg_fn_t *fn)
-{
-	register long rr0 asm("r0") = r0;
-	register long rr1 asm("r1") = r1;
-	register long rr2 asm("r2") = r2;
-	register long rr3 asm("r3") = r3;
-	register long ret asm("r0");
-	long oldcpsr = *cpsr;
-	long newcpsr;
-
-	__asm__ __volatile__ (
-		"msr	cpsr_fs, %[oldcpsr]	\n\t"
-		"mov	lr, pc			\n\t"
-		"mov	pc, %[fn]		\n\t"
-		"mrs	%[newcpsr], cpsr	\n\t"
-		: "=r" (ret), [newcpsr] "=r" (newcpsr)
-		: "0" (rr0), "r" (rr1), "r" (rr2), "r" (rr3),
-		  [oldcpsr] "r" (oldcpsr), [fn] "r" (fn)
-		: "lr", "cc"
-	);
-	*cpsr = (oldcpsr & ~PSR_fs) | (newcpsr & PSR_fs);
-	return ret;
-}
-
-static inline long long __kprobes
-insnslot_llret_4arg_rwflags(long r0, long r1, long r2, long r3, long *cpsr,
-			    insn_llret_4arg_fn_t *fn)
-{
-	register long rr0 asm("r0") = r0;
-	register long rr1 asm("r1") = r1;
-	register long rr2 asm("r2") = r2;
-	register long rr3 asm("r3") = r3;
-	register long ret0 asm("r0");
-	register long ret1 asm("r1");
-	long oldcpsr = *cpsr;
-	long newcpsr;
-	union reg_pair fnr;
-
-	__asm__ __volatile__ (
-		"msr	cpsr_fs, %[oldcpsr]	\n\t"
-		"mov	lr, pc			\n\t"
-		"mov	pc, %[fn]		\n\t"
-		"mrs	%[newcpsr], cpsr	\n\t"
-		: "=r" (ret0), "=r" (ret1), [newcpsr] "=r" (newcpsr)
-		: "0" (rr0), "r" (rr1), "r" (rr2), "r" (rr3),
-		  [oldcpsr] "r" (oldcpsr), [fn] "r" (fn)
-		: "lr", "cc"
-	);
-	*cpsr = (oldcpsr & ~PSR_fs) | (newcpsr & PSR_fs);
-	fnr.r0 = ret0;
-	fnr.r1 = ret1;
-	return fnr.dr;
-}
 
 /*
  * To avoid the complications of mimicing single-stepping on a
@@ -466,501 +150,236 @@ static void __kprobes simulate_mrs(struct kprobe *p, struct pt_regs *regs)
 	regs->uregs[rd] = regs->ARM_cpsr & mask;
 }
 
-static void __kprobes simulate_ldm1stm1(struct kprobe *p, struct pt_regs *regs)
-{
-	kprobe_opcode_t insn = p->opcode;
-	int rn = (insn >> 16) & 0xf;
-	int lbit = insn & (1 << 20);
-	int wbit = insn & (1 << 21);
-	int ubit = insn & (1 << 23);
-	int pbit = insn & (1 << 24);
-	long *addr = (long *)regs->uregs[rn];
-	int reg_bit_vector;
-	int reg_count;
-
-	reg_count = 0;
-	reg_bit_vector = insn & 0xffff;
-	while (reg_bit_vector) {
-		reg_bit_vector &= (reg_bit_vector - 1);
-		++reg_count;
-	}
-
-	if (!ubit)
-		addr -= reg_count;
-	addr += (!pbit == !ubit);
-
-	reg_bit_vector = insn & 0xffff;
-	while (reg_bit_vector) {
-		int reg = __ffs(reg_bit_vector);
-		reg_bit_vector &= (reg_bit_vector - 1);
-		if (lbit)
-			regs->uregs[reg] = *addr++;
-		else
-			*addr++ = regs->uregs[reg];
-	}
-
-	if (wbit) {
-		if (!ubit)
-			addr -= reg_count;
-		addr -= (!pbit == !ubit);
-		regs->uregs[rn] = (long)addr;
-	}
-}
-
-static void __kprobes simulate_stm1_pc(struct kprobe *p, struct pt_regs *regs)
-{
-	regs->ARM_pc = (long)p->addr + str_pc_offset;
-	simulate_ldm1stm1(p, regs);
-	regs->ARM_pc = (long)p->addr + 4;
-}
-
 static void __kprobes simulate_mov_ipsp(struct kprobe *p, struct pt_regs *regs)
 {
 	regs->uregs[12] = regs->uregs[13];
 }
 
-static void __kprobes emulate_ldrd(struct kprobe *p, struct pt_regs *regs)
+static void __kprobes
+emulate_ldrdstrd(struct kprobe *p, struct pt_regs *regs)
 {
-	insn_2arg_fn_t *i_fn = (insn_2arg_fn_t *)&p->ainsn.insn[0];
 	kprobe_opcode_t insn = p->opcode;
-	long ppc = (long)p->addr + 8;
-	int rd = (insn >> 12) & 0xf;
+	unsigned long pc = (unsigned long)p->addr + 8;
+	int rt = (insn >> 12) & 0xf;
 	int rn = (insn >> 16) & 0xf;
-	int rm = insn & 0xf;  /* rm may be invalid, don't care. */
-	long rmv = (rm == 15) ? ppc : regs->uregs[rm];
-	long rnv = (rn == 15) ? ppc : regs->uregs[rn];
+	int rm = insn & 0xf;
 
-	/* Not following the C calling convention here, so need asm(). */
+	register unsigned long rtv asm("r0") = regs->uregs[rt];
+	register unsigned long rt2v asm("r1") = regs->uregs[rt+1];
+	register unsigned long rnv asm("r2") = (rn == 15) ? pc
+							  : regs->uregs[rn];
+	register unsigned long rmv asm("r3") = regs->uregs[rm];
+
 	__asm__ __volatile__ (
-		"ldr	r0, %[rn]	\n\t"
-		"ldr	r1, %[rm]	\n\t"
-		"msr	cpsr_fs, %[cpsr]\n\t"
-		"mov	lr, pc		\n\t"
-		"mov	pc, %[i_fn]	\n\t"
-		"str	r0, %[rn]	\n\t"	/* in case of writeback */
-		"str	r2, %[rd0]	\n\t"
-		"str	r3, %[rd1]	\n\t"
-		: [rn]  "+m" (rnv),
-		  [rd0] "=m" (regs->uregs[rd]),
-		  [rd1] "=m" (regs->uregs[rd+1])
-		: [rm]   "m" (rmv),
-		  [cpsr] "r" (regs->ARM_cpsr),
-		  [i_fn] "r" (i_fn)
-		: "r0", "r1", "r2", "r3", "lr", "cc"
+		BLX("%[fn]")
+		: "=r" (rtv), "=r" (rt2v), "=r" (rnv)
+		: "0" (rtv), "1" (rt2v), "2" (rnv), "r" (rmv),
+		  [fn] "r" (p->ainsn.insn_fn)
+		: "lr", "memory", "cc"
 	);
+
+	regs->uregs[rt] = rtv;
+	regs->uregs[rt+1] = rt2v;
 	if (is_writeback(insn))
 		regs->uregs[rn] = rnv;
 }
 
-static void __kprobes emulate_strd(struct kprobe *p, struct pt_regs *regs)
+static void __kprobes
+emulate_ldr(struct kprobe *p, struct pt_regs *regs)
 {
-	insn_4arg_fn_t *i_fn = (insn_4arg_fn_t *)&p->ainsn.insn[0];
 	kprobe_opcode_t insn = p->opcode;
-	long ppc = (long)p->addr + 8;
-	int rd = (insn >> 12) & 0xf;
+	unsigned long pc = (unsigned long)p->addr + 8;
+	int rt = (insn >> 12) & 0xf;
 	int rn = (insn >> 16) & 0xf;
-	int rm  = insn & 0xf;
-	long rnv = (rn == 15) ? ppc : regs->uregs[rn];
-	/* rm/rmv may be invalid, don't care. */
-	long rmv = (rm == 15) ? ppc : regs->uregs[rm];
-	long rnv_wb;
+	int rm = insn & 0xf;
 
-	rnv_wb = insnslot_4arg_rflags(rnv, rmv, regs->uregs[rd],
-					       regs->uregs[rd+1],
-					       regs->ARM_cpsr, i_fn);
+	register unsigned long rtv asm("r0");
+	register unsigned long rnv asm("r2") = (rn == 15) ? pc
+							  : regs->uregs[rn];
+	register unsigned long rmv asm("r3") = regs->uregs[rm];
+
+	__asm__ __volatile__ (
+		BLX("%[fn]")
+		: "=r" (rtv), "=r" (rnv)
+		: "1" (rnv), "r" (rmv), [fn] "r" (p->ainsn.insn_fn)
+		: "lr", "memory", "cc"
+	);
+
+	if (rt == 15)
+		load_write_pc(rtv, regs);
+	else
+		regs->uregs[rt] = rtv;
+
 	if (is_writeback(insn))
-		regs->uregs[rn] = rnv_wb;
+		regs->uregs[rn] = rnv;
 }
 
-static void __kprobes emulate_ldr(struct kprobe *p, struct pt_regs *regs)
+static void __kprobes
+emulate_str(struct kprobe *p, struct pt_regs *regs)
 {
-	insn_llret_3arg_fn_t *i_fn = (insn_llret_3arg_fn_t *)&p->ainsn.insn[0];
 	kprobe_opcode_t insn = p->opcode;
-	long ppc = (long)p->addr + 8;
-	union reg_pair fnr;
+	unsigned long rtpc = (unsigned long)p->addr + str_pc_offset;
+	unsigned long rnpc = (unsigned long)p->addr + 8;
+	int rt = (insn >> 12) & 0xf;
+	int rn = (insn >> 16) & 0xf;
+	int rm = insn & 0xf;
+
+	register unsigned long rtv asm("r0") = (rt == 15) ? rtpc
+							  : regs->uregs[rt];
+	register unsigned long rnv asm("r2") = (rn == 15) ? rnpc
+							  : regs->uregs[rn];
+	register unsigned long rmv asm("r3") = regs->uregs[rm];
+
+	__asm__ __volatile__ (
+		BLX("%[fn]")
+		: "=r" (rnv)
+		: "r" (rtv), "0" (rnv), "r" (rmv), [fn] "r" (p->ainsn.insn_fn)
+		: "lr", "memory", "cc"
+	);
+
+	if (is_writeback(insn))
+		regs->uregs[rn] = rnv;
+}
+
+static void __kprobes
+emulate_rd12rn16rm0rs8_rwflags(struct kprobe *p, struct pt_regs *regs)
+{
+	kprobe_opcode_t insn = p->opcode;
+	unsigned long pc = (unsigned long)p->addr + 8;
 	int rd = (insn >> 12) & 0xf;
 	int rn = (insn >> 16) & 0xf;
 	int rm = insn & 0xf;
-	long rdv;
-	long rnv = (rn == 15) ? ppc : regs->uregs[rn];
-	long rmv = (rm == 15) ? ppc : regs->uregs[rm];
-	long cpsr = regs->ARM_cpsr;
+	int rs = (insn >> 8) & 0xf;
 
-	fnr.dr = insnslot_llret_3arg_rflags(rnv, 0, rmv, cpsr, i_fn);
-	if (rn != 15)
-		regs->uregs[rn] = fnr.r0;  /* Save Rn in case of writeback. */
-	rdv = fnr.r1;
+	register unsigned long rdv asm("r0") = regs->uregs[rd];
+	register unsigned long rnv asm("r2") = (rn == 15) ? pc
+							  : regs->uregs[rn];
+	register unsigned long rmv asm("r3") = (rm == 15) ? pc
+							  : regs->uregs[rm];
+	register unsigned long rsv asm("r1") = regs->uregs[rs];
+	unsigned long cpsr = regs->ARM_cpsr;
 
-	if (rd == 15) {
-#if __LINUX_ARM_ARCH__ >= 5
-		cpsr &= ~PSR_T_BIT;
-		if (rdv & 0x1)
-			cpsr |= PSR_T_BIT;
-		regs->ARM_cpsr = cpsr;
-		rdv &= ~0x1;
-#else
-		rdv &= ~0x2;
-#endif
-	}
+	__asm__ __volatile__ (
+		"msr	cpsr_fs, %[cpsr]	\n\t"
+		BLX("%[fn]")
+		"mrs	%[cpsr], cpsr		\n\t"
+		: "=r" (rdv), [cpsr] "=r" (cpsr)
+		: "0" (rdv), "r" (rnv), "r" (rmv), "r" (rsv),
+		  "1" (cpsr), [fn] "r" (p->ainsn.insn_fn)
+		: "lr", "memory", "cc"
+	);
+
+	if (rd == 15)
+		alu_write_pc(rdv, regs);
+	else
+		regs->uregs[rd] = rdv;
+	regs->ARM_cpsr = (regs->ARM_cpsr & ~APSR_MASK) | (cpsr & APSR_MASK);
+}
+
+static void __kprobes
+emulate_rd12rn16rm0_rwflags_nopc(struct kprobe *p, struct pt_regs *regs)
+{
+	kprobe_opcode_t insn = p->opcode;
+	int rd = (insn >> 12) & 0xf;
+	int rn = (insn >> 16) & 0xf;
+	int rm = insn & 0xf;
+
+	register unsigned long rdv asm("r0") = regs->uregs[rd];
+	register unsigned long rnv asm("r2") = regs->uregs[rn];
+	register unsigned long rmv asm("r3") = regs->uregs[rm];
+	unsigned long cpsr = regs->ARM_cpsr;
+
+	__asm__ __volatile__ (
+		"msr	cpsr_fs, %[cpsr]	\n\t"
+		BLX("%[fn]")
+		"mrs	%[cpsr], cpsr		\n\t"
+		: "=r" (rdv), [cpsr] "=r" (cpsr)
+		: "0" (rdv), "r" (rnv), "r" (rmv),
+		  "1" (cpsr), [fn] "r" (p->ainsn.insn_fn)
+		: "lr", "memory", "cc"
+	);
+
 	regs->uregs[rd] = rdv;
-}
-
-static void __kprobes emulate_str(struct kprobe *p, struct pt_regs *regs)
-{
-	insn_3arg_fn_t *i_fn = (insn_3arg_fn_t *)&p->ainsn.insn[0];
-	kprobe_opcode_t insn = p->opcode;
-	long iaddr = (long)p->addr;
-	int rd = (insn >> 12) & 0xf;
-	int rn = (insn >> 16) & 0xf;
-	int rm = insn & 0xf;
-	long rdv = (rd == 15) ? iaddr + str_pc_offset : regs->uregs[rd];
-	long rnv = (rn == 15) ? iaddr +  8 : regs->uregs[rn];
-	long rmv = regs->uregs[rm];  /* rm/rmv may be invalid, don't care. */
-	long rnv_wb;
-
-	rnv_wb = insnslot_3arg_rflags(rnv, rdv, rmv, regs->ARM_cpsr, i_fn);
-	if (rn != 15)
-		regs->uregs[rn] = rnv_wb;  /* Save Rn in case of writeback. */
-}
-
-static void __kprobes emulate_sat(struct kprobe *p, struct pt_regs *regs)
-{
-	insn_1arg_fn_t *i_fn = (insn_1arg_fn_t *)&p->ainsn.insn[0];
-	kprobe_opcode_t insn = p->opcode;
-	int rd = (insn >> 12) & 0xf;
-	int rm = insn & 0xf;
-	long rmv = regs->uregs[rm];
-
-	/* Writes Q flag */
-	regs->uregs[rd] = insnslot_1arg_rwflags(rmv, &regs->ARM_cpsr, i_fn);
-}
-
-static void __kprobes emulate_sel(struct kprobe *p, struct pt_regs *regs)
-{
-	insn_2arg_fn_t *i_fn = (insn_2arg_fn_t *)&p->ainsn.insn[0];
-	kprobe_opcode_t insn = p->opcode;
-	int rd = (insn >> 12) & 0xf;
-	int rn = (insn >> 16) & 0xf;
-	int rm = insn & 0xf;
-	long rnv = regs->uregs[rn];
-	long rmv = regs->uregs[rm];
-
-	/* Reads GE bits */
-	regs->uregs[rd] = insnslot_2arg_rflags(rnv, rmv, regs->ARM_cpsr, i_fn);
-}
-
-static void __kprobes emulate_none(struct kprobe *p, struct pt_regs *regs)
-{
-	insn_0arg_fn_t *i_fn = (insn_0arg_fn_t *)&p->ainsn.insn[0];
-
-	insnslot_0arg_rflags(regs->ARM_cpsr, i_fn);
-}
-
-static void __kprobes emulate_nop(struct kprobe *p, struct pt_regs *regs)
-{
+	regs->ARM_cpsr = (regs->ARM_cpsr & ~APSR_MASK) | (cpsr & APSR_MASK);
 }
 
 static void __kprobes
-emulate_rd12_modify(struct kprobe *p, struct pt_regs *regs)
+emulate_rd16rn12rm0rs8_rwflags_nopc(struct kprobe *p, struct pt_regs *regs)
 {
-	insn_1arg_fn_t *i_fn = (insn_1arg_fn_t *)&p->ainsn.insn[0];
-	kprobe_opcode_t insn = p->opcode;
-	int rd = (insn >> 12) & 0xf;
-	long rdv = regs->uregs[rd];
-
-	regs->uregs[rd] = insnslot_1arg_rflags(rdv, regs->ARM_cpsr, i_fn);
-}
-
-static void __kprobes
-emulate_rd12rn0_modify(struct kprobe *p, struct pt_regs *regs)
-{
-	insn_2arg_fn_t *i_fn = (insn_2arg_fn_t *)&p->ainsn.insn[0];
-	kprobe_opcode_t insn = p->opcode;
-	int rd = (insn >> 12) & 0xf;
-	int rn = insn & 0xf;
-	long rdv = regs->uregs[rd];
-	long rnv = regs->uregs[rn];
-
-	regs->uregs[rd] = insnslot_2arg_rflags(rdv, rnv, regs->ARM_cpsr, i_fn);
-}
-
-static void __kprobes emulate_rd12rm0(struct kprobe *p, struct pt_regs *regs)
-{
-	insn_1arg_fn_t *i_fn = (insn_1arg_fn_t *)&p->ainsn.insn[0];
-	kprobe_opcode_t insn = p->opcode;
-	int rd = (insn >> 12) & 0xf;
-	int rm = insn & 0xf;
-	long rmv = regs->uregs[rm];
-
-	regs->uregs[rd] = insnslot_1arg_rflags(rmv, regs->ARM_cpsr, i_fn);
-}
-
-static void __kprobes
-emulate_rd12rn16rm0_rwflags(struct kprobe *p, struct pt_regs *regs)
-{
-	insn_2arg_fn_t *i_fn = (insn_2arg_fn_t *)&p->ainsn.insn[0];
-	kprobe_opcode_t insn = p->opcode;
-	int rd = (insn >> 12) & 0xf;
-	int rn = (insn >> 16) & 0xf;
-	int rm = insn & 0xf;
-	long rnv = regs->uregs[rn];
-	long rmv = regs->uregs[rm];
-
-	regs->uregs[rd] =
-		insnslot_2arg_rwflags(rnv, rmv, &regs->ARM_cpsr, i_fn);
-}
-
-static void __kprobes
-emulate_rd16rn12rs8rm0_rwflags(struct kprobe *p, struct pt_regs *regs)
-{
-	insn_3arg_fn_t *i_fn = (insn_3arg_fn_t *)&p->ainsn.insn[0];
 	kprobe_opcode_t insn = p->opcode;
 	int rd = (insn >> 16) & 0xf;
 	int rn = (insn >> 12) & 0xf;
-	int rs = (insn >> 8) & 0xf;
 	int rm = insn & 0xf;
-	long rnv = regs->uregs[rn];
-	long rsv = regs->uregs[rs];
-	long rmv = regs->uregs[rm];
+	int rs = (insn >> 8) & 0xf;
 
-	regs->uregs[rd] =
-		insnslot_3arg_rwflags(rnv, rsv, rmv, &regs->ARM_cpsr, i_fn);
+	register unsigned long rdv asm("r2") = regs->uregs[rd];
+	register unsigned long rnv asm("r0") = regs->uregs[rn];
+	register unsigned long rmv asm("r3") = regs->uregs[rm];
+	register unsigned long rsv asm("r1") = regs->uregs[rs];
+	unsigned long cpsr = regs->ARM_cpsr;
+
+	__asm__ __volatile__ (
+		"msr	cpsr_fs, %[cpsr]	\n\t"
+		BLX("%[fn]")
+		"mrs	%[cpsr], cpsr		\n\t"
+		: "=r" (rdv), [cpsr] "=r" (cpsr)
+		: "0" (rdv), "r" (rnv), "r" (rmv), "r" (rsv),
+		  "1" (cpsr), [fn] "r" (p->ainsn.insn_fn)
+		: "lr", "memory", "cc"
+	);
+
+	regs->uregs[rd] = rdv;
+	regs->ARM_cpsr = (regs->ARM_cpsr & ~APSR_MASK) | (cpsr & APSR_MASK);
 }
 
 static void __kprobes
-emulate_rd16rs8rm0_rwflags(struct kprobe *p, struct pt_regs *regs)
+emulate_rd12rm0_noflags_nopc(struct kprobe *p, struct pt_regs *regs)
 {
-	insn_2arg_fn_t *i_fn = (insn_2arg_fn_t *)&p->ainsn.insn[0];
 	kprobe_opcode_t insn = p->opcode;
-	int rd = (insn >> 16) & 0xf;
-	int rs = (insn >> 8) & 0xf;
+	int rd = (insn >> 12) & 0xf;
 	int rm = insn & 0xf;
-	long rsv = regs->uregs[rs];
-	long rmv = regs->uregs[rm];
 
-	regs->uregs[rd] =
-		insnslot_2arg_rwflags(rsv, rmv, &regs->ARM_cpsr, i_fn);
+	register unsigned long rdv asm("r0") = regs->uregs[rd];
+	register unsigned long rmv asm("r3") = regs->uregs[rm];
+
+	__asm__ __volatile__ (
+		BLX("%[fn]")
+		: "=r" (rdv)
+		: "0" (rdv), "r" (rmv), [fn] "r" (p->ainsn.insn_fn)
+		: "lr", "memory", "cc"
+	);
+
+	regs->uregs[rd] = rdv;
 }
 
 static void __kprobes
-emulate_rdhi16rdlo12rs8rm0_rwflags(struct kprobe *p, struct pt_regs *regs)
+emulate_rdlo12rdhi16rn0rm8_rwflags_nopc(struct kprobe *p, struct pt_regs *regs)
 {
-	insn_llret_4arg_fn_t *i_fn = (insn_llret_4arg_fn_t *)&p->ainsn.insn[0];
 	kprobe_opcode_t insn = p->opcode;
-	union reg_pair fnr;
-	int rdhi = (insn >> 16) & 0xf;
 	int rdlo = (insn >> 12) & 0xf;
-	int rs   = (insn >> 8) & 0xf;
-	int rm   = insn & 0xf;
-	long rsv = regs->uregs[rs];
-	long rmv = regs->uregs[rm];
+	int rdhi = (insn >> 16) & 0xf;
+	int rn = insn & 0xf;
+	int rm = (insn >> 8) & 0xf;
 
-	fnr.dr = insnslot_llret_4arg_rwflags(regs->uregs[rdhi],
-					     regs->uregs[rdlo], rsv, rmv,
-					     &regs->ARM_cpsr, i_fn);
-	regs->uregs[rdhi] = fnr.r0;
-	regs->uregs[rdlo] = fnr.r1;
-}
+	register unsigned long rdlov asm("r0") = regs->uregs[rdlo];
+	register unsigned long rdhiv asm("r2") = regs->uregs[rdhi];
+	register unsigned long rnv asm("r3") = regs->uregs[rn];
+	register unsigned long rmv asm("r1") = regs->uregs[rm];
+	unsigned long cpsr = regs->ARM_cpsr;
 
-static void __kprobes
-emulate_alu_imm_rflags(struct kprobe *p, struct pt_regs *regs)
-{
-	insn_1arg_fn_t *i_fn = (insn_1arg_fn_t *)&p->ainsn.insn[0];
-	kprobe_opcode_t insn = p->opcode;
-	int rd = (insn >> 12) & 0xf;
-	int rn = (insn >> 16) & 0xf;
-	long rnv = (rn == 15) ? (long)p->addr + 8 : regs->uregs[rn];
+	__asm__ __volatile__ (
+		"msr	cpsr_fs, %[cpsr]	\n\t"
+		BLX("%[fn]")
+		"mrs	%[cpsr], cpsr		\n\t"
+		: "=r" (rdlov), "=r" (rdhiv), [cpsr] "=r" (cpsr)
+		: "0" (rdlov), "1" (rdhiv), "r" (rnv), "r" (rmv),
+		  "2" (cpsr), [fn] "r" (p->ainsn.insn_fn)
+		: "lr", "memory", "cc"
+	);
 
-	regs->uregs[rd] = insnslot_1arg_rflags(rnv, regs->ARM_cpsr, i_fn);
-}
-
-static void __kprobes
-emulate_alu_imm_rwflags(struct kprobe *p, struct pt_regs *regs)
-{
-	insn_1arg_fn_t *i_fn = (insn_1arg_fn_t *)&p->ainsn.insn[0];
-	kprobe_opcode_t insn = p->opcode;
-	int rd = (insn >> 12) & 0xf;
-	int rn = (insn >> 16) & 0xf;
-	long rnv = (rn == 15) ? (long)p->addr + 8 : regs->uregs[rn];
-
-	regs->uregs[rd] = insnslot_1arg_rwflags(rnv, &regs->ARM_cpsr, i_fn);
-}
-
-static void __kprobes
-emulate_alu_tests_imm(struct kprobe *p, struct pt_regs *regs)
-{
-	insn_1arg_fn_t *i_fn = (insn_1arg_fn_t *)&p->ainsn.insn[0];
-	kprobe_opcode_t insn = p->opcode;
-	int rn = (insn >> 16) & 0xf;
-	long rnv = (rn == 15) ? (long)p->addr + 8 : regs->uregs[rn];
-
-	insnslot_1arg_rwflags(rnv, &regs->ARM_cpsr, i_fn);
-}
-
-static void __kprobes
-emulate_alu_rflags(struct kprobe *p, struct pt_regs *regs)
-{
-	insn_3arg_fn_t *i_fn = (insn_3arg_fn_t *)&p->ainsn.insn[0];
-	kprobe_opcode_t insn = p->opcode;
-	long ppc = (long)p->addr + 8;
-	int rd = (insn >> 12) & 0xf;
-	int rn = (insn >> 16) & 0xf;	/* rn/rnv/rs/rsv may be */
-	int rs = (insn >> 8) & 0xf;	/* invalid, don't care. */
-	int rm = insn & 0xf;
-	long rnv = (rn == 15) ? ppc : regs->uregs[rn];
-	long rmv = (rm == 15) ? ppc : regs->uregs[rm];
-	long rsv = regs->uregs[rs];
-
-	regs->uregs[rd] =
-		insnslot_3arg_rflags(rnv, rmv, rsv, regs->ARM_cpsr, i_fn);
-}
-
-static void __kprobes
-emulate_alu_rwflags(struct kprobe *p, struct pt_regs *regs)
-{
-	insn_3arg_fn_t *i_fn = (insn_3arg_fn_t *)&p->ainsn.insn[0];
-	kprobe_opcode_t insn = p->opcode;
-	long ppc = (long)p->addr + 8;
-	int rd = (insn >> 12) & 0xf;
-	int rn = (insn >> 16) & 0xf;	/* rn/rnv/rs/rsv may be */
-	int rs = (insn >> 8) & 0xf;	/* invalid, don't care. */
-	int rm = insn & 0xf;
-	long rnv = (rn == 15) ? ppc : regs->uregs[rn];
-	long rmv = (rm == 15) ? ppc : regs->uregs[rm];
-	long rsv = regs->uregs[rs];
-
-	regs->uregs[rd] =
-		insnslot_3arg_rwflags(rnv, rmv, rsv, &regs->ARM_cpsr, i_fn);
-}
-
-static void __kprobes
-emulate_alu_tests(struct kprobe *p, struct pt_regs *regs)
-{
-	insn_3arg_fn_t *i_fn = (insn_3arg_fn_t *)&p->ainsn.insn[0];
-	kprobe_opcode_t insn = p->opcode;
-	long ppc = (long)p->addr + 8;
-	int rn = (insn >> 16) & 0xf;
-	int rs = (insn >> 8) & 0xf;	/* rs/rsv may be invalid, don't care. */
-	int rm = insn & 0xf;
-	long rnv = (rn == 15) ? ppc : regs->uregs[rn];
-	long rmv = (rm == 15) ? ppc : regs->uregs[rm];
-	long rsv = regs->uregs[rs];
-
-	insnslot_3arg_rwflags(rnv, rmv, rsv, &regs->ARM_cpsr, i_fn);
-}
-
-static enum kprobe_insn __kprobes
-prep_emulate_ldr_str(kprobe_opcode_t insn, struct arch_specific_insn *asi)
-{
-	int not_imm = (insn & (1 << 26)) ? (insn & (1 << 25))
-					 : (~insn & (1 << 22));
-
-	if (is_writeback(insn) && is_r15(insn, 16))
-		return INSN_REJECTED;	/* Writeback to PC */
-
-	insn &= 0xfff00fff;
-	insn |= 0x00001000;	/* Rn = r0, Rd = r1 */
-	if (not_imm) {
-		insn &= ~0xf;
-		insn |= 2;	/* Rm = r2 */
-	}
-	asi->insn[0] = insn;
-	asi->insn_handler = (insn & (1 << 20)) ? emulate_ldr : emulate_str;
-	return INSN_GOOD;
-}
-
-static enum kprobe_insn __kprobes
-prep_emulate_rd12_modify(kprobe_opcode_t insn, struct arch_specific_insn *asi)
-{
-	if (is_r15(insn, 12))
-		return INSN_REJECTED;	/* Rd is PC */
-
-	insn &= 0xffff0fff;	/* Rd = r0 */
-	asi->insn[0] = insn;
-	asi->insn_handler = emulate_rd12_modify;
-	return INSN_GOOD;
-}
-
-static enum kprobe_insn __kprobes
-prep_emulate_rd12rn0_modify(kprobe_opcode_t insn,
-			    struct arch_specific_insn *asi)
-{
-	if (is_r15(insn, 12))
-		return INSN_REJECTED;	/* Rd is PC */
-
-	insn &= 0xffff0ff0;	/* Rd = r0 */
-	insn |= 0x00000001;	/* Rn = r1 */
-	asi->insn[0] = insn;
-	asi->insn_handler = emulate_rd12rn0_modify;
-	return INSN_GOOD;
-}
-
-static enum kprobe_insn __kprobes
-prep_emulate_rd12rm0(kprobe_opcode_t insn, struct arch_specific_insn *asi)
-{
-	if (is_r15(insn, 12))
-		return INSN_REJECTED;	/* Rd is PC */
-
-	insn &= 0xffff0ff0;	/* Rd = r0, Rm = r0 */
-	asi->insn[0] = insn;
-	asi->insn_handler = emulate_rd12rm0;
-	return INSN_GOOD;
-}
-
-static enum kprobe_insn __kprobes
-prep_emulate_rd12rn16rm0_wflags(kprobe_opcode_t insn,
-				struct arch_specific_insn *asi)
-{
-	if (is_r15(insn, 12))
-		return INSN_REJECTED;	/* Rd is PC */
-
-	insn &= 0xfff00ff0;	/* Rd = r0, Rn = r0 */
-	insn |= 0x00000001;	/* Rm = r1 */
-	asi->insn[0] = insn;
-	asi->insn_handler = emulate_rd12rn16rm0_rwflags;
-	return INSN_GOOD;
-}
-
-static enum kprobe_insn __kprobes
-prep_emulate_rd16rs8rm0_wflags(kprobe_opcode_t insn,
-			       struct arch_specific_insn *asi)
-{
-	if (is_r15(insn, 16))
-		return INSN_REJECTED;	/* Rd is PC */
-
-	insn &= 0xfff0f0f0;	/* Rd = r0, Rs = r0 */
-	insn |= 0x00000001;	/* Rm = r1          */
-	asi->insn[0] = insn;
-	asi->insn_handler = emulate_rd16rs8rm0_rwflags;
-	return INSN_GOOD;
-}
-
-static enum kprobe_insn __kprobes
-prep_emulate_rd16rn12rs8rm0_wflags(kprobe_opcode_t insn,
-				   struct arch_specific_insn *asi)
-{
-	if (is_r15(insn, 16))
-		return INSN_REJECTED;	/* Rd is PC */
-
-	insn &= 0xfff000f0;	/* Rd = r0, Rn = r0 */
-	insn |= 0x00000102;	/* Rs = r1, Rm = r2 */
-	asi->insn[0] = insn;
-	asi->insn_handler = emulate_rd16rn12rs8rm0_rwflags;
-	return INSN_GOOD;
-}
-
-static enum kprobe_insn __kprobes
-prep_emulate_rdhi16rdlo12rs8rm0_wflags(kprobe_opcode_t insn,
-				       struct arch_specific_insn *asi)
-{
-	if (is_r15(insn, 16) || is_r15(insn, 12))
-		return INSN_REJECTED;	/* RdHi or RdLo is PC */
-
-	insn &= 0xfff000f0;	/* RdHi = r0, RdLo = r1 */
-	insn |= 0x00001203;	/* Rs = r2, Rm = r3 */
-	asi->insn[0] = insn;
-	asi->insn_handler = emulate_rdhi16rdlo12rs8rm0_rwflags;
-	return INSN_GOOD;
+	regs->uregs[rdlo] = rdlov;
+	regs->uregs[rdhi] = rdhiv;
+	regs->ARM_cpsr = (regs->ARM_cpsr & ~APSR_MASK) | (cpsr & APSR_MASK);
 }
 
 /*
@@ -973,555 +392,585 @@ prep_emulate_rdhi16rdlo12rs8rm0_wflags(kprobe_opcode_t insn,
  * number of tests needed.
  */
 
-static enum kprobe_insn __kprobes
-space_1111(kprobe_opcode_t insn, struct arch_specific_insn *asi)
-{
-	/* memory hint : 1111 0100 x001 xxxx xxxx xxxx xxxx xxxx : */
-	/* PLDI        : 1111 0100 x101 xxxx xxxx xxxx xxxx xxxx : */
-	/* PLDW        : 1111 0101 x001 xxxx xxxx xxxx xxxx xxxx : */
-	/* PLD         : 1111 0101 x101 xxxx xxxx xxxx xxxx xxxx : */
-	if ((insn & 0xfe300000) == 0xf4100000) {
-		asi->insn_handler = emulate_nop;
-		return INSN_GOOD_NO_SLOT;
-	}
+static const union decode_item arm_1111_table[] = {
+	/* Unconditional instructions					*/
 
-	/* BLX(1) : 1111 101x xxxx xxxx xxxx xxxx xxxx xxxx : */
-	if ((insn & 0xfe000000) == 0xfa000000) {
-		asi->insn_handler = simulate_blx1;
-		return INSN_GOOD_NO_SLOT;
-	}
+	/* memory hint		1111 0100 x001 xxxx xxxx xxxx xxxx xxxx */
+	/* PLDI (immediate)	1111 0100 x101 xxxx xxxx xxxx xxxx xxxx */
+	/* PLDW (immediate)	1111 0101 x001 xxxx xxxx xxxx xxxx xxxx */
+	/* PLD (immediate)	1111 0101 x101 xxxx xxxx xxxx xxxx xxxx */
+	DECODE_SIMULATE	(0xfe300000, 0xf4100000, kprobe_simulate_nop),
 
-	/* CPS   : 1111 0001 0000 xxx0 xxxx xxxx xx0x xxxx */
-	/* SETEND: 1111 0001 0000 0001 xxxx xxxx 0000 xxxx */
+	/* memory hint		1111 0110 x001 xxxx xxxx xxxx xxx0 xxxx */
+	/* PLDI (register)	1111 0110 x101 xxxx xxxx xxxx xxx0 xxxx */
+	/* PLDW (register)	1111 0111 x001 xxxx xxxx xxxx xxx0 xxxx */
+	/* PLD (register)	1111 0111 x101 xxxx xxxx xxxx xxx0 xxxx */
+	DECODE_SIMULATE	(0xfe300010, 0xf6100000, kprobe_simulate_nop),
 
-	/* SRS   : 1111 100x x1x0 xxxx xxxx xxxx xxxx xxxx */
-	/* RFE   : 1111 100x x0x1 xxxx xxxx xxxx xxxx xxxx */
+	/* BLX (immediate)	1111 101x xxxx xxxx xxxx xxxx xxxx xxxx */
+	DECODE_SIMULATE	(0xfe000000, 0xfa000000, simulate_blx1),
+
+	/* CPS			1111 0001 0000 xxx0 xxxx xxxx xx0x xxxx */
+	/* SETEND		1111 0001 0000 0001 xxxx xxxx 0000 xxxx */
+	/* SRS			1111 100x x1x0 xxxx xxxx xxxx xxxx xxxx */
+	/* RFE			1111 100x x0x1 xxxx xxxx xxxx xxxx xxxx */
 
 	/* Coprocessor instructions... */
-	/* MCRR2 : 1111 1100 0100 xxxx xxxx xxxx xxxx xxxx : (Rd != Rn) */
-	/* MRRC2 : 1111 1100 0101 xxxx xxxx xxxx xxxx xxxx : (Rd != Rn) */
-	/* LDC2  : 1111 110x xxx1 xxxx xxxx xxxx xxxx xxxx */
-	/* STC2  : 1111 110x xxx0 xxxx xxxx xxxx xxxx xxxx */
-	/* CDP2  : 1111 1110 xxxx xxxx xxxx xxxx xxx0 xxxx */
-	/* MCR2  : 1111 1110 xxx0 xxxx xxxx xxxx xxx1 xxxx */
-	/* MRC2  : 1111 1110 xxx1 xxxx xxxx xxxx xxx1 xxxx */
+	/* MCRR2		1111 1100 0100 xxxx xxxx xxxx xxxx xxxx */
+	/* MRRC2		1111 1100 0101 xxxx xxxx xxxx xxxx xxxx */
+	/* LDC2			1111 110x xxx1 xxxx xxxx xxxx xxxx xxxx */
+	/* STC2			1111 110x xxx0 xxxx xxxx xxxx xxxx xxxx */
+	/* CDP2			1111 1110 xxxx xxxx xxxx xxxx xxx0 xxxx */
+	/* MCR2			1111 1110 xxx0 xxxx xxxx xxxx xxx1 xxxx */
+	/* MRC2			1111 1110 xxx1 xxxx xxxx xxxx xxx1 xxxx */
 
-	return INSN_REJECTED;
-}
+	/* Other unallocated instructions...				*/
+	DECODE_END
+};
 
-static enum kprobe_insn __kprobes
-space_cccc_000x(kprobe_opcode_t insn, struct arch_specific_insn *asi)
-{
-	/* cccc 0001 0xx0 xxxx xxxx xxxx xxxx xxx0 xxxx */
-	if ((insn & 0x0f900010) == 0x01000000) {
+static const union decode_item arm_cccc_0001_0xx0____0xxx_table[] = {
+	/* Miscellaneous instructions					*/
 
-		/* MRS cpsr : cccc 0001 0000 xxxx xxxx xxxx 0000 xxxx */
-		if ((insn & 0x0ff000f0) == 0x01000000) {
-			if (is_r15(insn, 12))
-				return INSN_REJECTED;	/* Rd is PC */
-			asi->insn_handler = simulate_mrs;
-			return INSN_GOOD_NO_SLOT;
-		}
+	/* MRS cpsr		cccc 0001 0000 xxxx xxxx xxxx 0000 xxxx */
+	DECODE_SIMULATEX(0x0ff000f0, 0x01000000, simulate_mrs,
+						 REGS(0, NOPC, 0, 0, 0)),
 
-		/* SMLALxy : cccc 0001 0100 xxxx xxxx xxxx 1xx0 xxxx */
-		if ((insn & 0x0ff00090) == 0x01400080)
-			return prep_emulate_rdhi16rdlo12rs8rm0_wflags(insn,
-									asi);
+	/* BX			cccc 0001 0010 xxxx xxxx xxxx 0001 xxxx */
+	DECODE_SIMULATE	(0x0ff000f0, 0x01200010, simulate_blx2bx),
 
-		/* SMULWy : cccc 0001 0010 xxxx xxxx xxxx 1x10 xxxx */
-		/* SMULxy : cccc 0001 0110 xxxx xxxx xxxx 1xx0 xxxx */
-		if ((insn & 0x0ff000b0) == 0x012000a0 ||
-		    (insn & 0x0ff00090) == 0x01600080)
-			return prep_emulate_rd16rs8rm0_wflags(insn, asi);
+	/* BLX (register)	cccc 0001 0010 xxxx xxxx xxxx 0011 xxxx */
+	DECODE_SIMULATEX(0x0ff000f0, 0x01200030, simulate_blx2bx,
+						 REGS(0, 0, 0, 0, NOPC)),
 
-		/* SMLAxy : cccc 0001 0000 xxxx xxxx xxxx 1xx0 xxxx : Q */
-		/* SMLAWy : cccc 0001 0010 xxxx xxxx xxxx 1x00 xxxx : Q */
-		if ((insn & 0x0ff00090) == 0x01000080 ||
-		    (insn & 0x0ff000b0) == 0x01200080)
-			return prep_emulate_rd16rn12rs8rm0_wflags(insn, asi);
+	/* CLZ			cccc 0001 0110 xxxx xxxx xxxx 0001 xxxx */
+	DECODE_EMULATEX	(0x0ff000f0, 0x01600010, emulate_rd12rm0_noflags_nopc,
+						 REGS(0, NOPC, 0, 0, NOPC)),
 
-		/* BXJ      : cccc 0001 0010 xxxx xxxx xxxx 0010 xxxx */
-		/* MSR      : cccc 0001 0x10 xxxx xxxx xxxx 0000 xxxx */
-		/* MRS spsr : cccc 0001 0100 xxxx xxxx xxxx 0000 xxxx */
+	/* QADD			cccc 0001 0000 xxxx xxxx xxxx 0101 xxxx */
+	/* QSUB			cccc 0001 0010 xxxx xxxx xxxx 0101 xxxx */
+	/* QDADD		cccc 0001 0100 xxxx xxxx xxxx 0101 xxxx */
+	/* QDSUB		cccc 0001 0110 xxxx xxxx xxxx 0101 xxxx */
+	DECODE_EMULATEX	(0x0f9000f0, 0x01000050, emulate_rd12rn16rm0_rwflags_nopc,
+						 REGS(NOPC, NOPC, 0, 0, NOPC)),
 
-		/* Other instruction encodings aren't yet defined */
-		return INSN_REJECTED;
-	}
+	/* BXJ			cccc 0001 0010 xxxx xxxx xxxx 0010 xxxx */
+	/* MSR			cccc 0001 0x10 xxxx xxxx xxxx 0000 xxxx */
+	/* MRS spsr		cccc 0001 0100 xxxx xxxx xxxx 0000 xxxx */
+	/* BKPT			1110 0001 0010 xxxx xxxx xxxx 0111 xxxx */
+	/* SMC			cccc 0001 0110 xxxx xxxx xxxx 0111 xxxx */
+	/* And unallocated instructions...				*/
+	DECODE_END
+};
 
-	/* cccc 0001 0xx0 xxxx xxxx xxxx xxxx 0xx1 xxxx */
-	else if ((insn & 0x0f900090) == 0x01000010) {
+static const union decode_item arm_cccc_0001_0xx0____1xx0_table[] = {
+	/* Halfword multiply and multiply-accumulate			*/
 
-		/* BLX(2) : cccc 0001 0010 xxxx xxxx xxxx 0011 xxxx */
-		/* BX     : cccc 0001 0010 xxxx xxxx xxxx 0001 xxxx */
-		if ((insn & 0x0ff000d0) == 0x01200010) {
-			if ((insn & 0x0ff000ff) == 0x0120003f)
-				return INSN_REJECTED; /* BLX pc */
-			asi->insn_handler = simulate_blx2bx;
-			return INSN_GOOD_NO_SLOT;
-		}
+	/* SMLALxy		cccc 0001 0100 xxxx xxxx xxxx 1xx0 xxxx */
+	DECODE_EMULATEX	(0x0ff00090, 0x01400080, emulate_rdlo12rdhi16rn0rm8_rwflags_nopc,
+						 REGS(NOPC, NOPC, NOPC, 0, NOPC)),
 
-		/* CLZ : cccc 0001 0110 xxxx xxxx xxxx 0001 xxxx */
-		if ((insn & 0x0ff000f0) == 0x01600010)
-			return prep_emulate_rd12rm0(insn, asi);
+	/* SMULWy		cccc 0001 0010 xxxx xxxx xxxx 1x10 xxxx */
+	DECODE_OR	(0x0ff000b0, 0x012000a0),
+	/* SMULxy		cccc 0001 0110 xxxx xxxx xxxx 1xx0 xxxx */
+	DECODE_EMULATEX	(0x0ff00090, 0x01600080, emulate_rd16rn12rm0rs8_rwflags_nopc,
+						 REGS(NOPC, 0, NOPC, 0, NOPC)),
 
-		/* QADD    : cccc 0001 0000 xxxx xxxx xxxx 0101 xxxx :Q */
-		/* QSUB    : cccc 0001 0010 xxxx xxxx xxxx 0101 xxxx :Q */
-		/* QDADD   : cccc 0001 0100 xxxx xxxx xxxx 0101 xxxx :Q */
-		/* QDSUB   : cccc 0001 0110 xxxx xxxx xxxx 0101 xxxx :Q */
-		if ((insn & 0x0f9000f0) == 0x01000050)
-			return prep_emulate_rd12rn16rm0_wflags(insn, asi);
+	/* SMLAxy		cccc 0001 0000 xxxx xxxx xxxx 1xx0 xxxx */
+	DECODE_OR	(0x0ff00090, 0x01000080),
+	/* SMLAWy		cccc 0001 0010 xxxx xxxx xxxx 1x00 xxxx */
+	DECODE_EMULATEX	(0x0ff000b0, 0x01200080, emulate_rd16rn12rm0rs8_rwflags_nopc,
+						 REGS(NOPC, NOPC, NOPC, 0, NOPC)),
 
-		/* BKPT : 1110 0001 0010 xxxx xxxx xxxx 0111 xxxx */
-		/* SMC  : cccc 0001 0110 xxxx xxxx xxxx 0111 xxxx */
+	DECODE_END
+};
 
-		/* Other instruction encodings aren't yet defined */
-		return INSN_REJECTED;
-	}
+static const union decode_item arm_cccc_0000_____1001_table[] = {
+	/* Multiply and multiply-accumulate				*/
 
-	/* cccc 0000 xxxx xxxx xxxx xxxx xxxx 1001 xxxx */
-	else if ((insn & 0x0f0000f0) == 0x00000090) {
+	/* MUL			cccc 0000 0000 xxxx xxxx xxxx 1001 xxxx */
+	/* MULS			cccc 0000 0001 xxxx xxxx xxxx 1001 xxxx */
+	DECODE_EMULATEX	(0x0fe000f0, 0x00000090, emulate_rd16rn12rm0rs8_rwflags_nopc,
+						 REGS(NOPC, 0, NOPC, 0, NOPC)),
 
-		/* MUL    : cccc 0000 0000 xxxx xxxx xxxx 1001 xxxx :   */
-		/* MULS   : cccc 0000 0001 xxxx xxxx xxxx 1001 xxxx :cc */
-		/* MLA    : cccc 0000 0010 xxxx xxxx xxxx 1001 xxxx :   */
-		/* MLAS   : cccc 0000 0011 xxxx xxxx xxxx 1001 xxxx :cc */
-		/* UMAAL  : cccc 0000 0100 xxxx xxxx xxxx 1001 xxxx :   */
-		/* undef  : cccc 0000 0101 xxxx xxxx xxxx 1001 xxxx :   */
-		/* MLS    : cccc 0000 0110 xxxx xxxx xxxx 1001 xxxx :   */
-		/* undef  : cccc 0000 0111 xxxx xxxx xxxx 1001 xxxx :   */
-		/* UMULL  : cccc 0000 1000 xxxx xxxx xxxx 1001 xxxx :   */
-		/* UMULLS : cccc 0000 1001 xxxx xxxx xxxx 1001 xxxx :cc */
-		/* UMLAL  : cccc 0000 1010 xxxx xxxx xxxx 1001 xxxx :   */
-		/* UMLALS : cccc 0000 1011 xxxx xxxx xxxx 1001 xxxx :cc */
-		/* SMULL  : cccc 0000 1100 xxxx xxxx xxxx 1001 xxxx :   */
-		/* SMULLS : cccc 0000 1101 xxxx xxxx xxxx 1001 xxxx :cc */
-		/* SMLAL  : cccc 0000 1110 xxxx xxxx xxxx 1001 xxxx :   */
-		/* SMLALS : cccc 0000 1111 xxxx xxxx xxxx 1001 xxxx :cc */
-		if ((insn & 0x00d00000) == 0x00500000)
-			return INSN_REJECTED;
-		else if ((insn & 0x00e00000) == 0x00000000)
-			return prep_emulate_rd16rs8rm0_wflags(insn, asi);
-		else if ((insn & 0x00a00000) == 0x00200000)
-			return prep_emulate_rd16rn12rs8rm0_wflags(insn, asi);
-		else
-			return prep_emulate_rdhi16rdlo12rs8rm0_wflags(insn,
-									asi);
-	}
+	/* MLA			cccc 0000 0010 xxxx xxxx xxxx 1001 xxxx */
+	/* MLAS			cccc 0000 0011 xxxx xxxx xxxx 1001 xxxx */
+	DECODE_OR	(0x0fe000f0, 0x00200090),
+	/* MLS			cccc 0000 0110 xxxx xxxx xxxx 1001 xxxx */
+	DECODE_EMULATEX	(0x0ff000f0, 0x00600090, emulate_rd16rn12rm0rs8_rwflags_nopc,
+						 REGS(NOPC, NOPC, NOPC, 0, NOPC)),
 
-	/* cccc 000x xxxx xxxx xxxx xxxx xxxx 1xx1 xxxx */
-	else if ((insn & 0x0e000090) == 0x00000090) {
+	/* UMAAL		cccc 0000 0100 xxxx xxxx xxxx 1001 xxxx */
+	DECODE_OR	(0x0ff000f0, 0x00400090),
+	/* UMULL		cccc 0000 1000 xxxx xxxx xxxx 1001 xxxx */
+	/* UMULLS		cccc 0000 1001 xxxx xxxx xxxx 1001 xxxx */
+	/* UMLAL		cccc 0000 1010 xxxx xxxx xxxx 1001 xxxx */
+	/* UMLALS		cccc 0000 1011 xxxx xxxx xxxx 1001 xxxx */
+	/* SMULL		cccc 0000 1100 xxxx xxxx xxxx 1001 xxxx */
+	/* SMULLS		cccc 0000 1101 xxxx xxxx xxxx 1001 xxxx */
+	/* SMLAL		cccc 0000 1110 xxxx xxxx xxxx 1001 xxxx */
+	/* SMLALS		cccc 0000 1111 xxxx xxxx xxxx 1001 xxxx */
+	DECODE_EMULATEX	(0x0f8000f0, 0x00800090, emulate_rdlo12rdhi16rn0rm8_rwflags_nopc,
+						 REGS(NOPC, NOPC, NOPC, 0, NOPC)),
 
-		/* SWP   : cccc 0001 0000 xxxx xxxx xxxx 1001 xxxx */
-		/* SWPB  : cccc 0001 0100 xxxx xxxx xxxx 1001 xxxx */
-		/* ???   : cccc 0001 0x01 xxxx xxxx xxxx 1001 xxxx */
-		/* ???   : cccc 0001 0x10 xxxx xxxx xxxx 1001 xxxx */
-		/* ???   : cccc 0001 0x11 xxxx xxxx xxxx 1001 xxxx */
-		/* STREX : cccc 0001 1000 xxxx xxxx xxxx 1001 xxxx */
-		/* LDREX : cccc 0001 1001 xxxx xxxx xxxx 1001 xxxx */
-		/* STREXD: cccc 0001 1010 xxxx xxxx xxxx 1001 xxxx */
-		/* LDREXD: cccc 0001 1011 xxxx xxxx xxxx 1001 xxxx */
-		/* STREXB: cccc 0001 1100 xxxx xxxx xxxx 1001 xxxx */
-		/* LDREXB: cccc 0001 1101 xxxx xxxx xxxx 1001 xxxx */
-		/* STREXH: cccc 0001 1110 xxxx xxxx xxxx 1001 xxxx */
-		/* LDREXH: cccc 0001 1111 xxxx xxxx xxxx 1001 xxxx */
+	DECODE_END
+};
 
-		/* LDRD  : cccc 000x xxx0 xxxx xxxx xxxx 1101 xxxx */
-		/* STRD  : cccc 000x xxx0 xxxx xxxx xxxx 1111 xxxx */
-		/* LDRH  : cccc 000x xxx1 xxxx xxxx xxxx 1011 xxxx */
-		/* STRH  : cccc 000x xxx0 xxxx xxxx xxxx 1011 xxxx */
-		/* LDRSB : cccc 000x xxx1 xxxx xxxx xxxx 1101 xxxx */
-		/* LDRSH : cccc 000x xxx1 xxxx xxxx xxxx 1111 xxxx */
-		if ((insn & 0x0f0000f0) == 0x01000090) {
-			if ((insn & 0x0fb000f0) == 0x01000090) {
-				/* SWP/SWPB */
-				return prep_emulate_rd12rn16rm0_wflags(insn,
-									asi);
-			} else {
-				/* STREX/LDREX variants and unallocaed space */
-				return INSN_REJECTED;
-			}
+static const union decode_item arm_cccc_0001_____1001_table[] = {
+	/* Synchronization primitives					*/
 
-		} else if ((insn & 0x0e1000d0) == 0x00000d0) {
-			/* STRD/LDRD */
-			if ((insn & 0x0000e000) == 0x0000e000)
-				return INSN_REJECTED;	/* Rd is LR or PC */
-			if (is_writeback(insn) && is_r15(insn, 16))
-				return INSN_REJECTED;	/* Writeback to PC */
+	/* SMP/SWPB		cccc 0001 0x00 xxxx xxxx xxxx 1001 xxxx */
+	DECODE_EMULATEX	(0x0fb000f0, 0x01000090, emulate_rd12rn16rm0_rwflags_nopc,
+						 REGS(NOPC, NOPC, 0, 0, NOPC)),
 
-			insn &= 0xfff00fff;
-			insn |= 0x00002000;	/* Rn = r0, Rd = r2 */
-			if (!(insn & (1 << 22))) {
-				/* Register index */
-				insn &= ~0xf;
-				insn |= 1;	/* Rm = r1 */
-			}
-			asi->insn[0] = insn;
-			asi->insn_handler =
-				(insn & (1 << 5)) ? emulate_strd : emulate_ldrd;
-			return INSN_GOOD;
-		}
+	/* LDREX/STREX{,D,B,H}	cccc 0001 1xxx xxxx xxxx xxxx 1001 xxxx */
+	/* And unallocated instructions...				*/
+	DECODE_END
+};
 
-		/* LDRH/STRH/LDRSB/LDRSH */
-		if (is_r15(insn, 12))
-			return INSN_REJECTED;	/* Rd is PC */
-		return prep_emulate_ldr_str(insn, asi);
-	}
+static const union decode_item arm_cccc_000x_____1xx1_table[] = {
+	/* Extra load/store instructions				*/
 
-	/* cccc 000x xxxx xxxx xxxx xxxx xxxx xxxx xxxx */
+	/* STRHT		cccc 0000 xx10 xxxx xxxx xxxx 1011 xxxx */
+	/* ???			cccc 0000 xx10 xxxx xxxx xxxx 11x1 xxxx */
+	/* LDRHT		cccc 0000 xx11 xxxx xxxx xxxx 1011 xxxx */
+	/* LDRSBT		cccc 0000 xx11 xxxx xxxx xxxx 1101 xxxx */
+	/* LDRSHT		cccc 0000 xx11 xxxx xxxx xxxx 1111 xxxx */
+	DECODE_REJECT	(0x0f200090, 0x00200090),
+
+	/* LDRD/STRD lr,pc,{...	cccc 000x x0x0 xxxx 111x xxxx 1101 xxxx */
+	DECODE_REJECT	(0x0e10e0d0, 0x0000e0d0),
+
+	/* LDRD (register)	cccc 000x x0x0 xxxx xxxx xxxx 1101 xxxx */
+	/* STRD (register)	cccc 000x x0x0 xxxx xxxx xxxx 1111 xxxx */
+	DECODE_EMULATEX	(0x0e5000d0, 0x000000d0, emulate_ldrdstrd,
+						 REGS(NOPCWB, NOPCX, 0, 0, NOPC)),
+
+	/* LDRD (immediate)	cccc 000x x1x0 xxxx xxxx xxxx 1101 xxxx */
+	/* STRD (immediate)	cccc 000x x1x0 xxxx xxxx xxxx 1111 xxxx */
+	DECODE_EMULATEX	(0x0e5000d0, 0x004000d0, emulate_ldrdstrd,
+						 REGS(NOPCWB, NOPCX, 0, 0, 0)),
+
+	/* STRH (register)	cccc 000x x0x0 xxxx xxxx xxxx 1011 xxxx */
+	DECODE_EMULATEX	(0x0e5000f0, 0x000000b0, emulate_str,
+						 REGS(NOPCWB, NOPC, 0, 0, NOPC)),
+
+	/* LDRH (register)	cccc 000x x0x1 xxxx xxxx xxxx 1011 xxxx */
+	/* LDRSB (register)	cccc 000x x0x1 xxxx xxxx xxxx 1101 xxxx */
+	/* LDRSH (register)	cccc 000x x0x1 xxxx xxxx xxxx 1111 xxxx */
+	DECODE_EMULATEX	(0x0e500090, 0x00100090, emulate_ldr,
+						 REGS(NOPCWB, NOPC, 0, 0, NOPC)),
+
+	/* STRH (immediate)	cccc 000x x1x0 xxxx xxxx xxxx 1011 xxxx */
+	DECODE_EMULATEX	(0x0e5000f0, 0x004000b0, emulate_str,
+						 REGS(NOPCWB, NOPC, 0, 0, 0)),
+
+	/* LDRH (immediate)	cccc 000x x1x1 xxxx xxxx xxxx 1011 xxxx */
+	/* LDRSB (immediate)	cccc 000x x1x1 xxxx xxxx xxxx 1101 xxxx */
+	/* LDRSH (immediate)	cccc 000x x1x1 xxxx xxxx xxxx 1111 xxxx */
+	DECODE_EMULATEX	(0x0e500090, 0x00500090, emulate_ldr,
+						 REGS(NOPCWB, NOPC, 0, 0, 0)),
+
+	DECODE_END
+};
+
+static const union decode_item arm_cccc_000x_table[] = {
+	/* Data-processing (register)					*/
+
+	/* <op>S PC, ...	cccc 000x xxx1 xxxx 1111 xxxx xxxx xxxx */
+	DECODE_REJECT	(0x0e10f000, 0x0010f000),
+
+	/* MOV IP, SP		1110 0001 1010 0000 1100 0000 0000 1101 */
+	DECODE_SIMULATE	(0xffffffff, 0xe1a0c00d, simulate_mov_ipsp),
+
+	/* TST (register)	cccc 0001 0001 xxxx xxxx xxxx xxx0 xxxx */
+	/* TEQ (register)	cccc 0001 0011 xxxx xxxx xxxx xxx0 xxxx */
+	/* CMP (register)	cccc 0001 0101 xxxx xxxx xxxx xxx0 xxxx */
+	/* CMN (register)	cccc 0001 0111 xxxx xxxx xxxx xxx0 xxxx */
+	DECODE_EMULATEX	(0x0f900010, 0x01100000, emulate_rd12rn16rm0rs8_rwflags,
+						 REGS(ANY, 0, 0, 0, ANY)),
+
+	/* MOV (register)	cccc 0001 101x xxxx xxxx xxxx xxx0 xxxx */
+	/* MVN (register)	cccc 0001 111x xxxx xxxx xxxx xxx0 xxxx */
+	DECODE_EMULATEX	(0x0fa00010, 0x01a00000, emulate_rd12rn16rm0rs8_rwflags,
+						 REGS(0, ANY, 0, 0, ANY)),
+
+	/* AND (register)	cccc 0000 000x xxxx xxxx xxxx xxx0 xxxx */
+	/* EOR (register)	cccc 0000 001x xxxx xxxx xxxx xxx0 xxxx */
+	/* SUB (register)	cccc 0000 010x xxxx xxxx xxxx xxx0 xxxx */
+	/* RSB (register)	cccc 0000 011x xxxx xxxx xxxx xxx0 xxxx */
+	/* ADD (register)	cccc 0000 100x xxxx xxxx xxxx xxx0 xxxx */
+	/* ADC (register)	cccc 0000 101x xxxx xxxx xxxx xxx0 xxxx */
+	/* SBC (register)	cccc 0000 110x xxxx xxxx xxxx xxx0 xxxx */
+	/* RSC (register)	cccc 0000 111x xxxx xxxx xxxx xxx0 xxxx */
+	/* ORR (register)	cccc 0001 100x xxxx xxxx xxxx xxx0 xxxx */
+	/* BIC (register)	cccc 0001 110x xxxx xxxx xxxx xxx0 xxxx */
+	DECODE_EMULATEX	(0x0e000010, 0x00000000, emulate_rd12rn16rm0rs8_rwflags,
+						 REGS(ANY, ANY, 0, 0, ANY)),
+
+	/* TST (reg-shift reg)	cccc 0001 0001 xxxx xxxx xxxx 0xx1 xxxx */
+	/* TEQ (reg-shift reg)	cccc 0001 0011 xxxx xxxx xxxx 0xx1 xxxx */
+	/* CMP (reg-shift reg)	cccc 0001 0101 xxxx xxxx xxxx 0xx1 xxxx */
+	/* CMN (reg-shift reg)	cccc 0001 0111 xxxx xxxx xxxx 0xx1 xxxx */
+	DECODE_EMULATEX	(0x0f900090, 0x01100010, emulate_rd12rn16rm0rs8_rwflags,
+						 REGS(ANY, 0, NOPC, 0, ANY)),
+
+	/* MOV (reg-shift reg)	cccc 0001 101x xxxx xxxx xxxx 0xx1 xxxx */
+	/* MVN (reg-shift reg)	cccc 0001 111x xxxx xxxx xxxx 0xx1 xxxx */
+	DECODE_EMULATEX	(0x0fa00090, 0x01a00010, emulate_rd12rn16rm0rs8_rwflags,
+						 REGS(0, ANY, NOPC, 0, ANY)),
+
+	/* AND (reg-shift reg)	cccc 0000 000x xxxx xxxx xxxx 0xx1 xxxx */
+	/* EOR (reg-shift reg)	cccc 0000 001x xxxx xxxx xxxx 0xx1 xxxx */
+	/* SUB (reg-shift reg)	cccc 0000 010x xxxx xxxx xxxx 0xx1 xxxx */
+	/* RSB (reg-shift reg)	cccc 0000 011x xxxx xxxx xxxx 0xx1 xxxx */
+	/* ADD (reg-shift reg)	cccc 0000 100x xxxx xxxx xxxx 0xx1 xxxx */
+	/* ADC (reg-shift reg)	cccc 0000 101x xxxx xxxx xxxx 0xx1 xxxx */
+	/* SBC (reg-shift reg)	cccc 0000 110x xxxx xxxx xxxx 0xx1 xxxx */
+	/* RSC (reg-shift reg)	cccc 0000 111x xxxx xxxx xxxx 0xx1 xxxx */
+	/* ORR (reg-shift reg)	cccc 0001 100x xxxx xxxx xxxx 0xx1 xxxx */
+	/* BIC (reg-shift reg)	cccc 0001 110x xxxx xxxx xxxx 0xx1 xxxx */
+	DECODE_EMULATEX	(0x0e000090, 0x00000010, emulate_rd12rn16rm0rs8_rwflags,
+						 REGS(ANY, ANY, NOPC, 0, ANY)),
+
+	DECODE_END
+};
+
+static const union decode_item arm_cccc_001x_table[] = {
+	/* Data-processing (immediate)					*/
+
+	/* MOVW			cccc 0011 0000 xxxx xxxx xxxx xxxx xxxx */
+	/* MOVT			cccc 0011 0100 xxxx xxxx xxxx xxxx xxxx */
+	DECODE_EMULATEX	(0x0fb00000, 0x03000000, emulate_rd12rm0_noflags_nopc,
+						 REGS(0, NOPC, 0, 0, 0)),
+
+	/* YIELD		cccc 0011 0010 0000 xxxx xxxx 0000 0001 */
+	DECODE_OR	(0x0fff00ff, 0x03200001),
+	/* SEV			cccc 0011 0010 0000 xxxx xxxx 0000 0100 */
+	DECODE_EMULATE	(0x0fff00ff, 0x03200004, kprobe_emulate_none),
+	/* NOP			cccc 0011 0010 0000 xxxx xxxx 0000 0000 */
+	/* WFE			cccc 0011 0010 0000 xxxx xxxx 0000 0010 */
+	/* WFI			cccc 0011 0010 0000 xxxx xxxx 0000 0011 */
+	DECODE_SIMULATE	(0x0fff00fc, 0x03200000, kprobe_simulate_nop),
+	/* DBG			cccc 0011 0010 0000 xxxx xxxx ffff xxxx */
+	/* unallocated hints	cccc 0011 0010 0000 xxxx xxxx xxxx xxxx */
+	/* MSR (immediate)	cccc 0011 0x10 xxxx xxxx xxxx xxxx xxxx */
+	DECODE_REJECT	(0x0fb00000, 0x03200000),
+
+	/* <op>S PC, ...	cccc 001x xxx1 xxxx 1111 xxxx xxxx xxxx */
+	DECODE_REJECT	(0x0e10f000, 0x0210f000),
+
+	/* TST (immediate)	cccc 0011 0001 xxxx xxxx xxxx xxxx xxxx */
+	/* TEQ (immediate)	cccc 0011 0011 xxxx xxxx xxxx xxxx xxxx */
+	/* CMP (immediate)	cccc 0011 0101 xxxx xxxx xxxx xxxx xxxx */
+	/* CMN (immediate)	cccc 0011 0111 xxxx xxxx xxxx xxxx xxxx */
+	DECODE_EMULATEX	(0x0f900000, 0x03100000, emulate_rd12rn16rm0rs8_rwflags,
+						 REGS(ANY, 0, 0, 0, 0)),
+
+	/* MOV (immediate)	cccc 0011 101x xxxx xxxx xxxx xxxx xxxx */
+	/* MVN (immediate)	cccc 0011 111x xxxx xxxx xxxx xxxx xxxx */
+	DECODE_EMULATEX	(0x0fa00000, 0x03a00000, emulate_rd12rn16rm0rs8_rwflags,
+						 REGS(0, ANY, 0, 0, 0)),
+
+	/* AND (immediate)	cccc 0010 000x xxxx xxxx xxxx xxxx xxxx */
+	/* EOR (immediate)	cccc 0010 001x xxxx xxxx xxxx xxxx xxxx */
+	/* SUB (immediate)	cccc 0010 010x xxxx xxxx xxxx xxxx xxxx */
+	/* RSB (immediate)	cccc 0010 011x xxxx xxxx xxxx xxxx xxxx */
+	/* ADD (immediate)	cccc 0010 100x xxxx xxxx xxxx xxxx xxxx */
+	/* ADC (immediate)	cccc 0010 101x xxxx xxxx xxxx xxxx xxxx */
+	/* SBC (immediate)	cccc 0010 110x xxxx xxxx xxxx xxxx xxxx */
+	/* RSC (immediate)	cccc 0010 111x xxxx xxxx xxxx xxxx xxxx */
+	/* ORR (immediate)	cccc 0011 100x xxxx xxxx xxxx xxxx xxxx */
+	/* BIC (immediate)	cccc 0011 110x xxxx xxxx xxxx xxxx xxxx */
+	DECODE_EMULATEX	(0x0e000000, 0x02000000, emulate_rd12rn16rm0rs8_rwflags,
+						 REGS(ANY, ANY, 0, 0, 0)),
+
+	DECODE_END
+};
+
+static const union decode_item arm_cccc_0110_____xxx1_table[] = {
+	/* Media instructions						*/
+
+	/* SEL			cccc 0110 1000 xxxx xxxx xxxx 1011 xxxx */
+	DECODE_EMULATEX	(0x0ff000f0, 0x068000b0, emulate_rd12rn16rm0_rwflags_nopc,
+						 REGS(NOPC, NOPC, 0, 0, NOPC)),
+
+	/* SSAT			cccc 0110 101x xxxx xxxx xxxx xx01 xxxx */
+	/* USAT			cccc 0110 111x xxxx xxxx xxxx xx01 xxxx */
+	DECODE_OR(0x0fa00030, 0x06a00010),
+	/* SSAT16		cccc 0110 1010 xxxx xxxx xxxx 0011 xxxx */
+	/* USAT16		cccc 0110 1110 xxxx xxxx xxxx 0011 xxxx */
+	DECODE_EMULATEX	(0x0fb000f0, 0x06a00030, emulate_rd12rn16rm0_rwflags_nopc,
+						 REGS(0, NOPC, 0, 0, NOPC)),
+
+	/* REV			cccc 0110 1011 xxxx xxxx xxxx 0011 xxxx */
+	/* REV16		cccc 0110 1011 xxxx xxxx xxxx 1011 xxxx */
+	/* RBIT			cccc 0110 1111 xxxx xxxx xxxx 0011 xxxx */
+	/* REVSH		cccc 0110 1111 xxxx xxxx xxxx 1011 xxxx */
+	DECODE_EMULATEX	(0x0fb00070, 0x06b00030, emulate_rd12rm0_noflags_nopc,
+						 REGS(0, NOPC, 0, 0, NOPC)),
+
+	/* ???			cccc 0110 0x00 xxxx xxxx xxxx xxx1 xxxx */
+	DECODE_REJECT	(0x0fb00010, 0x06000010),
+	/* ???			cccc 0110 0xxx xxxx xxxx xxxx 1011 xxxx */
+	DECODE_REJECT	(0x0f8000f0, 0x060000b0),
+	/* ???			cccc 0110 0xxx xxxx xxxx xxxx 1101 xxxx */
+	DECODE_REJECT	(0x0f8000f0, 0x060000d0),
+	/* SADD16		cccc 0110 0001 xxxx xxxx xxxx 0001 xxxx */
+	/* SADDSUBX		cccc 0110 0001 xxxx xxxx xxxx 0011 xxxx */
+	/* SSUBADDX		cccc 0110 0001 xxxx xxxx xxxx 0101 xxxx */
+	/* SSUB16		cccc 0110 0001 xxxx xxxx xxxx 0111 xxxx */
+	/* SADD8		cccc 0110 0001 xxxx xxxx xxxx 1001 xxxx */
+	/* SSUB8		cccc 0110 0001 xxxx xxxx xxxx 1111 xxxx */
+	/* QADD16		cccc 0110 0010 xxxx xxxx xxxx 0001 xxxx */
+	/* QADDSUBX		cccc 0110 0010 xxxx xxxx xxxx 0011 xxxx */
+	/* QSUBADDX		cccc 0110 0010 xxxx xxxx xxxx 0101 xxxx */
+	/* QSUB16		cccc 0110 0010 xxxx xxxx xxxx 0111 xxxx */
+	/* QADD8		cccc 0110 0010 xxxx xxxx xxxx 1001 xxxx */
+	/* QSUB8		cccc 0110 0010 xxxx xxxx xxxx 1111 xxxx */
+	/* SHADD16		cccc 0110 0011 xxxx xxxx xxxx 0001 xxxx */
+	/* SHADDSUBX		cccc 0110 0011 xxxx xxxx xxxx 0011 xxxx */
+	/* SHSUBADDX		cccc 0110 0011 xxxx xxxx xxxx 0101 xxxx */
+	/* SHSUB16		cccc 0110 0011 xxxx xxxx xxxx 0111 xxxx */
+	/* SHADD8		cccc 0110 0011 xxxx xxxx xxxx 1001 xxxx */
+	/* SHSUB8		cccc 0110 0011 xxxx xxxx xxxx 1111 xxxx */
+	/* UADD16		cccc 0110 0101 xxxx xxxx xxxx 0001 xxxx */
+	/* UADDSUBX		cccc 0110 0101 xxxx xxxx xxxx 0011 xxxx */
+	/* USUBADDX		cccc 0110 0101 xxxx xxxx xxxx 0101 xxxx */
+	/* USUB16		cccc 0110 0101 xxxx xxxx xxxx 0111 xxxx */
+	/* UADD8		cccc 0110 0101 xxxx xxxx xxxx 1001 xxxx */
+	/* USUB8		cccc 0110 0101 xxxx xxxx xxxx 1111 xxxx */
+	/* UQADD16		cccc 0110 0110 xxxx xxxx xxxx 0001 xxxx */
+	/* UQADDSUBX		cccc 0110 0110 xxxx xxxx xxxx 0011 xxxx */
+	/* UQSUBADDX		cccc 0110 0110 xxxx xxxx xxxx 0101 xxxx */
+	/* UQSUB16		cccc 0110 0110 xxxx xxxx xxxx 0111 xxxx */
+	/* UQADD8		cccc 0110 0110 xxxx xxxx xxxx 1001 xxxx */
+	/* UQSUB8		cccc 0110 0110 xxxx xxxx xxxx 1111 xxxx */
+	/* UHADD16		cccc 0110 0111 xxxx xxxx xxxx 0001 xxxx */
+	/* UHADDSUBX		cccc 0110 0111 xxxx xxxx xxxx 0011 xxxx */
+	/* UHSUBADDX		cccc 0110 0111 xxxx xxxx xxxx 0101 xxxx */
+	/* UHSUB16		cccc 0110 0111 xxxx xxxx xxxx 0111 xxxx */
+	/* UHADD8		cccc 0110 0111 xxxx xxxx xxxx 1001 xxxx */
+	/* UHSUB8		cccc 0110 0111 xxxx xxxx xxxx 1111 xxxx */
+	DECODE_EMULATEX	(0x0f800010, 0x06000010, emulate_rd12rn16rm0_rwflags_nopc,
+						 REGS(NOPC, NOPC, 0, 0, NOPC)),
+
+	/* PKHBT		cccc 0110 1000 xxxx xxxx xxxx x001 xxxx */
+	/* PKHTB		cccc 0110 1000 xxxx xxxx xxxx x101 xxxx */
+	DECODE_EMULATEX	(0x0ff00030, 0x06800010, emulate_rd12rn16rm0_rwflags_nopc,
+						 REGS(NOPC, NOPC, 0, 0, NOPC)),
+
+	/* ???			cccc 0110 1001 xxxx xxxx xxxx 0111 xxxx */
+	/* ???			cccc 0110 1101 xxxx xxxx xxxx 0111 xxxx */
+	DECODE_REJECT	(0x0fb000f0, 0x06900070),
+
+	/* SXTB16		cccc 0110 1000 1111 xxxx xxxx 0111 xxxx */
+	/* SXTB			cccc 0110 1010 1111 xxxx xxxx 0111 xxxx */
+	/* SXTH			cccc 0110 1011 1111 xxxx xxxx 0111 xxxx */
+	/* UXTB16		cccc 0110 1100 1111 xxxx xxxx 0111 xxxx */
+	/* UXTB			cccc 0110 1110 1111 xxxx xxxx 0111 xxxx */
+	/* UXTH			cccc 0110 1111 1111 xxxx xxxx 0111 xxxx */
+	DECODE_EMULATEX	(0x0f8f00f0, 0x068f0070, emulate_rd12rm0_noflags_nopc,
+						 REGS(0, NOPC, 0, 0, NOPC)),
+
+	/* SXTAB16		cccc 0110 1000 xxxx xxxx xxxx 0111 xxxx */
+	/* SXTAB		cccc 0110 1010 xxxx xxxx xxxx 0111 xxxx */
+	/* SXTAH		cccc 0110 1011 xxxx xxxx xxxx 0111 xxxx */
+	/* UXTAB16		cccc 0110 1100 xxxx xxxx xxxx 0111 xxxx */
+	/* UXTAB		cccc 0110 1110 xxxx xxxx xxxx 0111 xxxx */
+	/* UXTAH		cccc 0110 1111 xxxx xxxx xxxx 0111 xxxx */
+	DECODE_EMULATEX	(0x0f8000f0, 0x06800070, emulate_rd12rn16rm0_rwflags_nopc,
+						 REGS(NOPCX, NOPC, 0, 0, NOPC)),
+
+	DECODE_END
+};
+
+static const union decode_item arm_cccc_0111_____xxx1_table[] = {
+	/* Media instructions						*/
+
+	/* UNDEFINED		cccc 0111 1111 xxxx xxxx xxxx 1111 xxxx */
+	DECODE_REJECT	(0x0ff000f0, 0x07f000f0),
+
+	/* SMLALD		cccc 0111 0100 xxxx xxxx xxxx 00x1 xxxx */
+	/* SMLSLD		cccc 0111 0100 xxxx xxxx xxxx 01x1 xxxx */
+	DECODE_EMULATEX	(0x0ff00090, 0x07400010, emulate_rdlo12rdhi16rn0rm8_rwflags_nopc,
+						 REGS(NOPC, NOPC, NOPC, 0, NOPC)),
+
+	/* SMUAD		cccc 0111 0000 xxxx 1111 xxxx 00x1 xxxx */
+	/* SMUSD		cccc 0111 0000 xxxx 1111 xxxx 01x1 xxxx */
+	DECODE_OR	(0x0ff0f090, 0x0700f010),
+	/* SMMUL		cccc 0111 0101 xxxx 1111 xxxx 00x1 xxxx */
+	DECODE_OR	(0x0ff0f0d0, 0x0750f010),
+	/* USAD8		cccc 0111 1000 xxxx 1111 xxxx 0001 xxxx */
+	DECODE_EMULATEX	(0x0ff0f0f0, 0x0780f010, emulate_rd16rn12rm0rs8_rwflags_nopc,
+						 REGS(NOPC, 0, NOPC, 0, NOPC)),
+
+	/* SMLAD		cccc 0111 0000 xxxx xxxx xxxx 00x1 xxxx */
+	/* SMLSD		cccc 0111 0000 xxxx xxxx xxxx 01x1 xxxx */
+	DECODE_OR	(0x0ff00090, 0x07000010),
+	/* SMMLA		cccc 0111 0101 xxxx xxxx xxxx 00x1 xxxx */
+	DECODE_OR	(0x0ff000d0, 0x07500010),
+	/* USADA8		cccc 0111 1000 xxxx xxxx xxxx 0001 xxxx */
+	DECODE_EMULATEX	(0x0ff000f0, 0x07800010, emulate_rd16rn12rm0rs8_rwflags_nopc,
+						 REGS(NOPC, NOPCX, NOPC, 0, NOPC)),
+
+	/* SMMLS		cccc 0111 0101 xxxx xxxx xxxx 11x1 xxxx */
+	DECODE_EMULATEX	(0x0ff000d0, 0x075000d0, emulate_rd16rn12rm0rs8_rwflags_nopc,
+						 REGS(NOPC, NOPC, NOPC, 0, NOPC)),
+
+	/* SBFX			cccc 0111 101x xxxx xxxx xxxx x101 xxxx */
+	/* UBFX			cccc 0111 111x xxxx xxxx xxxx x101 xxxx */
+	DECODE_EMULATEX	(0x0fa00070, 0x07a00050, emulate_rd12rm0_noflags_nopc,
+						 REGS(0, NOPC, 0, 0, NOPC)),
+
+	/* BFC			cccc 0111 110x xxxx xxxx xxxx x001 1111 */
+	DECODE_EMULATEX	(0x0fe0007f, 0x07c0001f, emulate_rd12rm0_noflags_nopc,
+						 REGS(0, NOPC, 0, 0, 0)),
+
+	/* BFI			cccc 0111 110x xxxx xxxx xxxx x001 xxxx */
+	DECODE_EMULATEX	(0x0fe00070, 0x07c00010, emulate_rd12rm0_noflags_nopc,
+						 REGS(0, NOPC, 0, 0, NOPCX)),
+
+	DECODE_END
+};
+
+static const union decode_item arm_cccc_01xx_table[] = {
+	/* Load/store word and unsigned byte				*/
+
+	/* LDRB/STRB pc,[...]	cccc 01xx x0xx xxxx xxxx xxxx xxxx xxxx */
+	DECODE_REJECT	(0x0c40f000, 0x0440f000),
+
+	/* STRT			cccc 01x0 x010 xxxx xxxx xxxx xxxx xxxx */
+	/* LDRT			cccc 01x0 x011 xxxx xxxx xxxx xxxx xxxx */
+	/* STRBT		cccc 01x0 x110 xxxx xxxx xxxx xxxx xxxx */
+	/* LDRBT		cccc 01x0 x111 xxxx xxxx xxxx xxxx xxxx */
+	DECODE_REJECT	(0x0d200000, 0x04200000),
+
+	/* STR (immediate)	cccc 010x x0x0 xxxx xxxx xxxx xxxx xxxx */
+	/* STRB (immediate)	cccc 010x x1x0 xxxx xxxx xxxx xxxx xxxx */
+	DECODE_EMULATEX	(0x0e100000, 0x04000000, emulate_str,
+						 REGS(NOPCWB, ANY, 0, 0, 0)),
+
+	/* LDR (immediate)	cccc 010x x0x1 xxxx xxxx xxxx xxxx xxxx */
+	/* LDRB (immediate)	cccc 010x x1x1 xxxx xxxx xxxx xxxx xxxx */
+	DECODE_EMULATEX	(0x0e100000, 0x04100000, emulate_ldr,
+						 REGS(NOPCWB, ANY, 0, 0, 0)),
+
+	/* STR (register)	cccc 011x x0x0 xxxx xxxx xxxx xxxx xxxx */
+	/* STRB (register)	cccc 011x x1x0 xxxx xxxx xxxx xxxx xxxx */
+	DECODE_EMULATEX	(0x0e100000, 0x06000000, emulate_str,
+						 REGS(NOPCWB, ANY, 0, 0, NOPC)),
+
+	/* LDR (register)	cccc 011x x0x1 xxxx xxxx xxxx xxxx xxxx */
+	/* LDRB (register)	cccc 011x x1x1 xxxx xxxx xxxx xxxx xxxx */
+	DECODE_EMULATEX	(0x0e100000, 0x06100000, emulate_ldr,
+						 REGS(NOPCWB, ANY, 0, 0, NOPC)),
+
+	DECODE_END
+};
+
+static const union decode_item arm_cccc_100x_table[] = {
+	/* Block data transfer instructions				*/
+
+	/* LDM			cccc 100x x0x1 xxxx xxxx xxxx xxxx xxxx */
+	/* STM			cccc 100x x0x0 xxxx xxxx xxxx xxxx xxxx */
+	DECODE_CUSTOM	(0x0e400000, 0x08000000, kprobe_decode_ldmstm),
+
+	/* STM (user registers)	cccc 100x x1x0 xxxx xxxx xxxx xxxx xxxx */
+	/* LDM (user registers)	cccc 100x x1x1 xxxx 0xxx xxxx xxxx xxxx */
+	/* LDM (exception ret)	cccc 100x x1x1 xxxx 1xxx xxxx xxxx xxxx */
+	DECODE_END
+};
+
+const union decode_item kprobe_decode_arm_table[] = {
+	/*
+	 * Unconditional instructions
+	 *			1111 xxxx xxxx xxxx xxxx xxxx xxxx xxxx
+	 */
+	DECODE_TABLE	(0xf0000000, 0xf0000000, arm_1111_table),
 
 	/*
-	 * ALU op with S bit and Rd == 15 :
-	 *	cccc 000x xxx1 xxxx 1111 xxxx xxxx xxxx
+	 * Miscellaneous instructions
+	 *			cccc 0001 0xx0 xxxx xxxx xxxx 0xxx xxxx
 	 */
-	if ((insn & 0x0e10f000) == 0x0010f000)
-		return INSN_REJECTED;
+	DECODE_TABLE	(0x0f900080, 0x01000000, arm_cccc_0001_0xx0____0xxx_table),
 
 	/*
-	 * "mov ip, sp" is the most common kprobe'd instruction by far.
-	 * Check and optimize for it explicitly.
+	 * Halfword multiply and multiply-accumulate
+	 *			cccc 0001 0xx0 xxxx xxxx xxxx 1xx0 xxxx
 	 */
-	if (insn == 0xe1a0c00d) {
-		asi->insn_handler = simulate_mov_ipsp;
-		return INSN_GOOD_NO_SLOT;
-	}
+	DECODE_TABLE	(0x0f900090, 0x01000080, arm_cccc_0001_0xx0____1xx0_table),
 
 	/*
-	 * Data processing: Immediate-shift / Register-shift
-	 * ALU op : cccc 000x xxxx xxxx xxxx xxxx xxxx xxxx
-	 * CPY    : cccc 0001 1010 xxxx xxxx 0000 0000 xxxx
-	 * MOV    : cccc 0001 101x xxxx xxxx xxxx xxxx xxxx
-	 * *S (bit 20) updates condition codes
-	 * ADC/SBC/RSC reads the C flag
+	 * Multiply and multiply-accumulate
+	 *			cccc 0000 xxxx xxxx xxxx xxxx 1001 xxxx
 	 */
-	insn &= 0xfff00ff0;	/* Rn = r0, Rd = r0 */
-	insn |= 0x00000001;	/* Rm = r1 */
-	if (insn & 0x010) {
-		insn &= 0xfffff0ff;     /* register shift */
-		insn |= 0x00000200;     /* Rs = r2 */
-	}
-	asi->insn[0] = insn;
-
-	if ((insn & 0x0f900000) == 0x01100000) {
-		/*
-		 * TST : cccc 0001 0001 xxxx xxxx xxxx xxxx xxxx
-		 * TEQ : cccc 0001 0011 xxxx xxxx xxxx xxxx xxxx
-		 * CMP : cccc 0001 0101 xxxx xxxx xxxx xxxx xxxx
-		 * CMN : cccc 0001 0111 xxxx xxxx xxxx xxxx xxxx
-		 */
-		asi->insn_handler = emulate_alu_tests;
-	} else {
-		/* ALU ops which write to Rd */
-		asi->insn_handler = (insn & (1 << 20)) ?  /* S-bit */
-				emulate_alu_rwflags : emulate_alu_rflags;
-	}
-	return INSN_GOOD;
-}
-
-static enum kprobe_insn __kprobes
-space_cccc_001x(kprobe_opcode_t insn, struct arch_specific_insn *asi)
-{
-	/* MOVW  : cccc 0011 0000 xxxx xxxx xxxx xxxx xxxx */
-	/* MOVT  : cccc 0011 0100 xxxx xxxx xxxx xxxx xxxx */
-	if ((insn & 0x0fb00000) == 0x03000000)
-		return prep_emulate_rd12_modify(insn, asi);
-
-	/* hints : cccc 0011 0010 0000 xxxx xxxx xxxx xxxx */
-	if ((insn & 0x0fff0000) == 0x03200000) {
-		unsigned op2 = insn & 0x000000ff;
-		if (op2 == 0x01 || op2 == 0x04) {
-			/* YIELD : cccc 0011 0010 0000 xxxx xxxx 0000 0001 */
-			/* SEV   : cccc 0011 0010 0000 xxxx xxxx 0000 0100 */
-			asi->insn[0] = insn;
-			asi->insn_handler = emulate_none;
-			return INSN_GOOD;
-		} else if (op2 <= 0x03) {
-			/* NOP   : cccc 0011 0010 0000 xxxx xxxx 0000 0000 */
-			/* WFE   : cccc 0011 0010 0000 xxxx xxxx 0000 0010 */
-			/* WFI   : cccc 0011 0010 0000 xxxx xxxx 0000 0011 */
-			/*
-			 * We make WFE and WFI true NOPs to avoid stalls due
-			 * to missing events whilst processing the probe.
-			 */
-			asi->insn_handler = emulate_nop;
-			return INSN_GOOD_NO_SLOT;
-		}
-		/* For DBG and unallocated hints it's safest to reject them */
-		return INSN_REJECTED;
-	}
+	DECODE_TABLE	(0x0f0000f0, 0x00000090, arm_cccc_0000_____1001_table),
 
 	/*
-	 * MSR   : cccc 0011 0x10 xxxx xxxx xxxx xxxx xxxx
-	 * ALU op with S bit and Rd == 15 :
-	 *	   cccc 001x xxx1 xxxx 1111 xxxx xxxx xxxx
+	 * Synchronization primitives
+	 *			cccc 0001 xxxx xxxx xxxx xxxx 1001 xxxx
 	 */
-	if ((insn & 0x0fb00000) == 0x03200000 ||	/* MSR */
-	    (insn & 0x0e10f000) == 0x0210f000)		/* ALU s-bit, R15  */
-		return INSN_REJECTED;
+	DECODE_TABLE	(0x0f0000f0, 0x01000090, arm_cccc_0001_____1001_table),
 
 	/*
-	 * Data processing: 32-bit Immediate
-	 * ALU op : cccc 001x xxxx xxxx xxxx xxxx xxxx xxxx
-	 * MOV    : cccc 0011 101x xxxx xxxx xxxx xxxx xxxx
-	 * *S (bit 20) updates condition codes
-	 * ADC/SBC/RSC reads the C flag
+	 * Extra load/store instructions
+	 *			cccc 000x xxxx xxxx xxxx xxxx 1xx1 xxxx
 	 */
-	insn &= 0xfff00fff;	/* Rn = r0 and Rd = r0 */
-	asi->insn[0] = insn;
+	DECODE_TABLE	(0x0e000090, 0x00000090, arm_cccc_000x_____1xx1_table),
 
-	if ((insn & 0x0f900000) == 0x03100000) {
-		/*
-		 * TST : cccc 0011 0001 xxxx xxxx xxxx xxxx xxxx
-		 * TEQ : cccc 0011 0011 xxxx xxxx xxxx xxxx xxxx
-		 * CMP : cccc 0011 0101 xxxx xxxx xxxx xxxx xxxx
-		 * CMN : cccc 0011 0111 xxxx xxxx xxxx xxxx xxxx
-		 */
-		asi->insn_handler = emulate_alu_tests_imm;
-	} else {
-		/* ALU ops which write to Rd */
-		asi->insn_handler = (insn & (1 << 20)) ?  /* S-bit */
-			emulate_alu_imm_rwflags : emulate_alu_imm_rflags;
-	}
-	return INSN_GOOD;
-}
+	/*
+	 * Data-processing (register)
+	 *			cccc 000x xxxx xxxx xxxx xxxx xxx0 xxxx
+	 * Data-processing (register-shifted register)
+	 *			cccc 000x xxxx xxxx xxxx xxxx 0xx1 xxxx
+	 */
+	DECODE_TABLE	(0x0e000000, 0x00000000, arm_cccc_000x_table),
 
-static enum kprobe_insn __kprobes
-space_cccc_0110__1(kprobe_opcode_t insn, struct arch_specific_insn *asi)
-{
-	/* SEL : cccc 0110 1000 xxxx xxxx xxxx 1011 xxxx GE: !!! */
-	if ((insn & 0x0ff000f0) == 0x068000b0) {
-		if (is_r15(insn, 12))
-			return INSN_REJECTED;	/* Rd is PC */
-		insn &= 0xfff00ff0;	/* Rd = r0, Rn = r0 */
-		insn |= 0x00000001;	/* Rm = r1 */
-		asi->insn[0] = insn;
-		asi->insn_handler = emulate_sel;
-		return INSN_GOOD;
-	}
+	/*
+	 * Data-processing (immediate)
+	 *			cccc 001x xxxx xxxx xxxx xxxx xxxx xxxx
+	 */
+	DECODE_TABLE	(0x0e000000, 0x02000000, arm_cccc_001x_table),
 
-	/* SSAT   : cccc 0110 101x xxxx xxxx xxxx xx01 xxxx :Q */
-	/* USAT   : cccc 0110 111x xxxx xxxx xxxx xx01 xxxx :Q */
-	/* SSAT16 : cccc 0110 1010 xxxx xxxx xxxx 0011 xxxx :Q */
-	/* USAT16 : cccc 0110 1110 xxxx xxxx xxxx 0011 xxxx :Q */
-	if ((insn & 0x0fa00030) == 0x06a00010 ||
-	    (insn & 0x0fb000f0) == 0x06a00030) {
-		if (is_r15(insn, 12))
-			return INSN_REJECTED;	/* Rd is PC */
-		insn &= 0xffff0ff0;	/* Rd = r0, Rm = r0 */
-		asi->insn[0] = insn;
-		asi->insn_handler = emulate_sat;
-		return INSN_GOOD;
-	}
+	/*
+	 * Media instructions
+	 *			cccc 011x xxxx xxxx xxxx xxxx xxx1 xxxx
+	 */
+	DECODE_TABLE	(0x0f000010, 0x06000010, arm_cccc_0110_____xxx1_table),
+	DECODE_TABLE	(0x0f000010, 0x07000010, arm_cccc_0111_____xxx1_table),
 
-	/* REV    : cccc 0110 1011 xxxx xxxx xxxx 0011 xxxx */
-	/* REV16  : cccc 0110 1011 xxxx xxxx xxxx 1011 xxxx */
-	/* RBIT   : cccc 0110 1111 xxxx xxxx xxxx 0011 xxxx */
-	/* REVSH  : cccc 0110 1111 xxxx xxxx xxxx 1011 xxxx */
-	if ((insn & 0x0ff00070) == 0x06b00030 ||
-	    (insn & 0x0ff00070) == 0x06f00030)
-		return prep_emulate_rd12rm0(insn, asi);
+	/*
+	 * Load/store word and unsigned byte
+	 *			cccc 01xx xxxx xxxx xxxx xxxx xxxx xxxx
+	 */
+	DECODE_TABLE	(0x0c000000, 0x04000000, arm_cccc_01xx_table),
 
-	/* ???       : cccc 0110 0000 xxxx xxxx xxxx xxx1 xxxx :   */
-	/* SADD16    : cccc 0110 0001 xxxx xxxx xxxx 0001 xxxx :GE */
-	/* SADDSUBX  : cccc 0110 0001 xxxx xxxx xxxx 0011 xxxx :GE */
-	/* SSUBADDX  : cccc 0110 0001 xxxx xxxx xxxx 0101 xxxx :GE */
-	/* SSUB16    : cccc 0110 0001 xxxx xxxx xxxx 0111 xxxx :GE */
-	/* SADD8     : cccc 0110 0001 xxxx xxxx xxxx 1001 xxxx :GE */
-	/* ???       : cccc 0110 0001 xxxx xxxx xxxx 1011 xxxx :   */
-	/* ???       : cccc 0110 0001 xxxx xxxx xxxx 1101 xxxx :   */
-	/* SSUB8     : cccc 0110 0001 xxxx xxxx xxxx 1111 xxxx :GE */
-	/* QADD16    : cccc 0110 0010 xxxx xxxx xxxx 0001 xxxx :   */
-	/* QADDSUBX  : cccc 0110 0010 xxxx xxxx xxxx 0011 xxxx :   */
-	/* QSUBADDX  : cccc 0110 0010 xxxx xxxx xxxx 0101 xxxx :   */
-	/* QSUB16    : cccc 0110 0010 xxxx xxxx xxxx 0111 xxxx :   */
-	/* QADD8     : cccc 0110 0010 xxxx xxxx xxxx 1001 xxxx :   */
-	/* ???       : cccc 0110 0010 xxxx xxxx xxxx 1011 xxxx :   */
-	/* ???       : cccc 0110 0010 xxxx xxxx xxxx 1101 xxxx :   */
-	/* QSUB8     : cccc 0110 0010 xxxx xxxx xxxx 1111 xxxx :   */
-	/* SHADD16   : cccc 0110 0011 xxxx xxxx xxxx 0001 xxxx :   */
-	/* SHADDSUBX : cccc 0110 0011 xxxx xxxx xxxx 0011 xxxx :   */
-	/* SHSUBADDX : cccc 0110 0011 xxxx xxxx xxxx 0101 xxxx :   */
-	/* SHSUB16   : cccc 0110 0011 xxxx xxxx xxxx 0111 xxxx :   */
-	/* SHADD8    : cccc 0110 0011 xxxx xxxx xxxx 1001 xxxx :   */
-	/* ???       : cccc 0110 0011 xxxx xxxx xxxx 1011 xxxx :   */
-	/* ???       : cccc 0110 0011 xxxx xxxx xxxx 1101 xxxx :   */
-	/* SHSUB8    : cccc 0110 0011 xxxx xxxx xxxx 1111 xxxx :   */
-	/* ???       : cccc 0110 0100 xxxx xxxx xxxx xxx1 xxxx :   */
-	/* UADD16    : cccc 0110 0101 xxxx xxxx xxxx 0001 xxxx :GE */
-	/* UADDSUBX  : cccc 0110 0101 xxxx xxxx xxxx 0011 xxxx :GE */
-	/* USUBADDX  : cccc 0110 0101 xxxx xxxx xxxx 0101 xxxx :GE */
-	/* USUB16    : cccc 0110 0101 xxxx xxxx xxxx 0111 xxxx :GE */
-	/* UADD8     : cccc 0110 0101 xxxx xxxx xxxx 1001 xxxx :GE */
-	/* ???       : cccc 0110 0101 xxxx xxxx xxxx 1011 xxxx :   */
-	/* ???       : cccc 0110 0101 xxxx xxxx xxxx 1101 xxxx :   */
-	/* USUB8     : cccc 0110 0101 xxxx xxxx xxxx 1111 xxxx :GE */
-	/* UQADD16   : cccc 0110 0110 xxxx xxxx xxxx 0001 xxxx :   */
-	/* UQADDSUBX : cccc 0110 0110 xxxx xxxx xxxx 0011 xxxx :   */
-	/* UQSUBADDX : cccc 0110 0110 xxxx xxxx xxxx 0101 xxxx :   */
-	/* UQSUB16   : cccc 0110 0110 xxxx xxxx xxxx 0111 xxxx :   */
-	/* UQADD8    : cccc 0110 0110 xxxx xxxx xxxx 1001 xxxx :   */
-	/* ???       : cccc 0110 0110 xxxx xxxx xxxx 1011 xxxx :   */
-	/* ???       : cccc 0110 0110 xxxx xxxx xxxx 1101 xxxx :   */
-	/* UQSUB8    : cccc 0110 0110 xxxx xxxx xxxx 1111 xxxx :   */
-	/* UHADD16   : cccc 0110 0111 xxxx xxxx xxxx 0001 xxxx :   */
-	/* UHADDSUBX : cccc 0110 0111 xxxx xxxx xxxx 0011 xxxx :   */
-	/* UHSUBADDX : cccc 0110 0111 xxxx xxxx xxxx 0101 xxxx :   */
-	/* UHSUB16   : cccc 0110 0111 xxxx xxxx xxxx 0111 xxxx :   */
-	/* UHADD8    : cccc 0110 0111 xxxx xxxx xxxx 1001 xxxx :   */
-	/* ???       : cccc 0110 0111 xxxx xxxx xxxx 1011 xxxx :   */
-	/* ???       : cccc 0110 0111 xxxx xxxx xxxx 1101 xxxx :   */
-	/* UHSUB8    : cccc 0110 0111 xxxx xxxx xxxx 1111 xxxx :   */
-	if ((insn & 0x0f800010) == 0x06000010) {
-		if ((insn & 0x00300000) == 0x00000000 ||
-		    (insn & 0x000000e0) == 0x000000a0 ||
-		    (insn & 0x000000e0) == 0x000000c0)
-			return INSN_REJECTED;	/* Unallocated space */
-		return prep_emulate_rd12rn16rm0_wflags(insn, asi);
-	}
+	/*
+	 * Block data transfer instructions
+	 *			cccc 100x xxxx xxxx xxxx xxxx xxxx xxxx
+	 */
+	DECODE_TABLE	(0x0e000000, 0x08000000, arm_cccc_100x_table),
 
-	/* PKHBT     : cccc 0110 1000 xxxx xxxx xxxx x001 xxxx :   */
-	/* PKHTB     : cccc 0110 1000 xxxx xxxx xxxx x101 xxxx :   */
-	if ((insn & 0x0ff00030) == 0x06800010)
-		return prep_emulate_rd12rn16rm0_wflags(insn, asi);
+	/* B			cccc 1010 xxxx xxxx xxxx xxxx xxxx xxxx */
+	/* BL			cccc 1011 xxxx xxxx xxxx xxxx xxxx xxxx */
+	DECODE_SIMULATE	(0x0e000000, 0x0a000000, simulate_bbl),
 
-	/* SXTAB16   : cccc 0110 1000 xxxx xxxx xxxx 0111 xxxx :   */
-	/* SXTB16    : cccc 0110 1000 1111 xxxx xxxx 0111 xxxx :   */
-	/* ???       : cccc 0110 1001 xxxx xxxx xxxx 0111 xxxx :   */
-	/* SXTAB     : cccc 0110 1010 xxxx xxxx xxxx 0111 xxxx :   */
-	/* SXTB      : cccc 0110 1010 1111 xxxx xxxx 0111 xxxx :   */
-	/* SXTAH     : cccc 0110 1011 xxxx xxxx xxxx 0111 xxxx :   */
-	/* SXTH      : cccc 0110 1011 1111 xxxx xxxx 0111 xxxx :   */
-	/* UXTAB16   : cccc 0110 1100 xxxx xxxx xxxx 0111 xxxx :   */
-	/* UXTB16    : cccc 0110 1100 1111 xxxx xxxx 0111 xxxx :   */
-	/* ???       : cccc 0110 1101 xxxx xxxx xxxx 0111 xxxx :   */
-	/* UXTAB     : cccc 0110 1110 xxxx xxxx xxxx 0111 xxxx :   */
-	/* UXTB      : cccc 0110 1110 1111 xxxx xxxx 0111 xxxx :   */
-	/* UXTAH     : cccc 0110 1111 xxxx xxxx xxxx 0111 xxxx :   */
-	/* UXTH      : cccc 0110 1111 1111 xxxx xxxx 0111 xxxx :   */
-	if ((insn & 0x0f8000f0) == 0x06800070) {
-		if ((insn & 0x00300000) == 0x00100000)
-			return INSN_REJECTED;	/* Unallocated space */
+	/*
+	 * Supervisor Call, and coprocessor instructions
+	 */
 
-		if ((insn & 0x000f0000) == 0x000f0000)
-			return prep_emulate_rd12rm0(insn, asi);
-		else
-			return prep_emulate_rd12rn16rm0_wflags(insn, asi);
-	}
+	/* MCRR			cccc 1100 0100 xxxx xxxx xxxx xxxx xxxx */
+	/* MRRC			cccc 1100 0101 xxxx xxxx xxxx xxxx xxxx */
+	/* LDC			cccc 110x xxx1 xxxx xxxx xxxx xxxx xxxx */
+	/* STC			cccc 110x xxx0 xxxx xxxx xxxx xxxx xxxx */
+	/* CDP			cccc 1110 xxxx xxxx xxxx xxxx xxx0 xxxx */
+	/* MCR			cccc 1110 xxx0 xxxx xxxx xxxx xxx1 xxxx */
+	/* MRC			cccc 1110 xxx1 xxxx xxxx xxxx xxx1 xxxx */
+	/* SVC			cccc 1111 xxxx xxxx xxxx xxxx xxxx xxxx */
+	DECODE_REJECT	(0x0c000000, 0x0c000000),
 
-	/* Other instruction encodings aren't yet defined */
-	return INSN_REJECTED;
-}
-
-static enum kprobe_insn __kprobes
-space_cccc_0111__1(kprobe_opcode_t insn, struct arch_specific_insn *asi)
-{
-	/* Undef : cccc 0111 1111 xxxx xxxx xxxx 1111 xxxx */
-	if ((insn & 0x0ff000f0) == 0x03f000f0)
-		return INSN_REJECTED;
-
-	/* SMLALD : cccc 0111 0100 xxxx xxxx xxxx 00x1 xxxx */
-	/* SMLSLD : cccc 0111 0100 xxxx xxxx xxxx 01x1 xxxx */
-	if ((insn & 0x0ff00090) == 0x07400010)
-		return prep_emulate_rdhi16rdlo12rs8rm0_wflags(insn, asi);
-
-	/* SMLAD  : cccc 0111 0000 xxxx xxxx xxxx 00x1 xxxx :Q */
-	/* SMUAD  : cccc 0111 0000 xxxx 1111 xxxx 00x1 xxxx :Q */
-	/* SMLSD  : cccc 0111 0000 xxxx xxxx xxxx 01x1 xxxx :Q */
-	/* SMUSD  : cccc 0111 0000 xxxx 1111 xxxx 01x1 xxxx :  */
-	/* SMMLA  : cccc 0111 0101 xxxx xxxx xxxx 00x1 xxxx :  */
-	/* SMMUL  : cccc 0111 0101 xxxx 1111 xxxx 00x1 xxxx :  */
-	/* USADA8 : cccc 0111 1000 xxxx xxxx xxxx 0001 xxxx :  */
-	/* USAD8  : cccc 0111 1000 xxxx 1111 xxxx 0001 xxxx :  */
-	if ((insn & 0x0ff00090) == 0x07000010 ||
-	    (insn & 0x0ff000d0) == 0x07500010 ||
-	    (insn & 0x0ff000f0) == 0x07800010) {
-
-		if ((insn & 0x0000f000) == 0x0000f000)
-			return prep_emulate_rd16rs8rm0_wflags(insn, asi);
-		else
-			return prep_emulate_rd16rn12rs8rm0_wflags(insn, asi);
-	}
-
-	/* SMMLS  : cccc 0111 0101 xxxx xxxx xxxx 11x1 xxxx :  */
-	if ((insn & 0x0ff000d0) == 0x075000d0)
-		return prep_emulate_rd16rn12rs8rm0_wflags(insn, asi);
-
-	/* SBFX   : cccc 0111 101x xxxx xxxx xxxx x101 xxxx :  */
-	/* UBFX   : cccc 0111 111x xxxx xxxx xxxx x101 xxxx :  */
-	if ((insn & 0x0fa00070) == 0x07a00050)
-		return prep_emulate_rd12rm0(insn, asi);
-
-	/* BFI    : cccc 0111 110x xxxx xxxx xxxx x001 xxxx :  */
-	/* BFC    : cccc 0111 110x xxxx xxxx xxxx x001 1111 :  */
-	if ((insn & 0x0fe00070) == 0x07c00010) {
-
-		if ((insn & 0x0000000f) == 0x0000000f)
-			return prep_emulate_rd12_modify(insn, asi);
-		else
-			return prep_emulate_rd12rn0_modify(insn, asi);
-	}
-
-	return INSN_REJECTED;
-}
-
-static enum kprobe_insn __kprobes
-space_cccc_01xx(kprobe_opcode_t insn, struct arch_specific_insn *asi)
-{
-	/* LDR   : cccc 01xx x0x1 xxxx xxxx xxxx xxxx xxxx */
-	/* LDRB  : cccc 01xx x1x1 xxxx xxxx xxxx xxxx xxxx */
-	/* LDRBT : cccc 01x0 x111 xxxx xxxx xxxx xxxx xxxx */
-	/* LDRT  : cccc 01x0 x011 xxxx xxxx xxxx xxxx xxxx */
-	/* STR   : cccc 01xx x0x0 xxxx xxxx xxxx xxxx xxxx */
-	/* STRB  : cccc 01xx x1x0 xxxx xxxx xxxx xxxx xxxx */
-	/* STRBT : cccc 01x0 x110 xxxx xxxx xxxx xxxx xxxx */
-	/* STRT  : cccc 01x0 x010 xxxx xxxx xxxx xxxx xxxx */
-
-	if ((insn & 0x00500000) == 0x00500000 && is_r15(insn, 12))
-		return INSN_REJECTED;	/* LDRB into PC */
-
-	return prep_emulate_ldr_str(insn, asi);
-}
-
-static enum kprobe_insn __kprobes
-space_cccc_100x(kprobe_opcode_t insn, struct arch_specific_insn *asi)
-{
-	/* LDM(2) : cccc 100x x101 xxxx 0xxx xxxx xxxx xxxx */
-	/* LDM(3) : cccc 100x x1x1 xxxx 1xxx xxxx xxxx xxxx */
-	if ((insn & 0x0e708000) == 0x85000000 ||
-	    (insn & 0x0e508000) == 0x85010000)
-		return INSN_REJECTED;
-
-	/* LDM(1) : cccc 100x x0x1 xxxx xxxx xxxx xxxx xxxx */
-	/* STM(1) : cccc 100x x0x0 xxxx xxxx xxxx xxxx xxxx */
-	asi->insn_handler = ((insn & 0x108000) == 0x008000) ? /* STM & R15 */
-				simulate_stm1_pc : simulate_ldm1stm1;
-	return INSN_GOOD_NO_SLOT;
-}
-
-static enum kprobe_insn __kprobes
-space_cccc_101x(kprobe_opcode_t insn, struct arch_specific_insn *asi)
-{
-	/* B  : cccc 1010 xxxx xxxx xxxx xxxx xxxx xxxx */
-	/* BL : cccc 1011 xxxx xxxx xxxx xxxx xxxx xxxx */
-	asi->insn_handler = simulate_bbl;
-	return INSN_GOOD_NO_SLOT;
-}
-
-static enum kprobe_insn __kprobes
-space_cccc_11xx(kprobe_opcode_t insn, struct arch_specific_insn *asi)
-{
-	/* Coprocessor instructions... */
-	/* MCRR : cccc 1100 0100 xxxx xxxx xxxx xxxx xxxx : (Rd!=Rn) */
-	/* MRRC : cccc 1100 0101 xxxx xxxx xxxx xxxx xxxx : (Rd!=Rn) */
-	/* LDC  : cccc 110x xxx1 xxxx xxxx xxxx xxxx xxxx */
-	/* STC  : cccc 110x xxx0 xxxx xxxx xxxx xxxx xxxx */
-	/* CDP  : cccc 1110 xxxx xxxx xxxx xxxx xxx0 xxxx */
-	/* MCR  : cccc 1110 xxx0 xxxx xxxx xxxx xxx1 xxxx */
-	/* MRC  : cccc 1110 xxx1 xxxx xxxx xxxx xxx1 xxxx */
-
-	/* SVC  : cccc 1111 xxxx xxxx xxxx xxxx xxxx xxxx */
-
-	return INSN_REJECTED;
-}
+	DECODE_END
+};
 
 static void __kprobes arm_singlestep(struct kprobe *p, struct pt_regs *regs)
 {
@@ -1546,44 +995,5 @@ arm_kprobe_decode_insn(kprobe_opcode_t insn, struct arch_specific_insn *asi)
 {
 	asi->insn_singlestep = arm_singlestep;
 	asi->insn_check_cc = kprobe_condition_checks[insn>>28];
-	asi->insn[1] = KPROBE_RETURN_INSTRUCTION;
-
-	if ((insn & 0xf0000000) == 0xf0000000)
-
-		return space_1111(insn, asi);
-
-	else if ((insn & 0x0e000000) == 0x00000000)
-
-		return space_cccc_000x(insn, asi);
-
-	else if ((insn & 0x0e000000) == 0x02000000)
-
-		return space_cccc_001x(insn, asi);
-
-	else if ((insn & 0x0f000010) == 0x06000010)
-
-		return space_cccc_0110__1(insn, asi);
-
-	else if ((insn & 0x0f000010) == 0x07000010)
-
-		return space_cccc_0111__1(insn, asi);
-
-	else if ((insn & 0x0c000000) == 0x04000000)
-
-		return space_cccc_01xx(insn, asi);
-
-	else if ((insn & 0x0e000000) == 0x08000000)
-
-		return space_cccc_100x(insn, asi);
-
-	else if ((insn & 0x0e000000) == 0x0a000000)
-
-		return space_cccc_101x(insn, asi);
-
-	return space_cccc_11xx(insn, asi);
-}
-
-void __init arm_kprobe_decode_init(void)
-{
-	find_str_pc_offset();
+	return kprobe_decode_insn(insn, asi, kprobe_decode_arm_table, false);
 }
