@@ -36,7 +36,6 @@ struct outer_cache_fns {
 	void (*prefetch_enable)(void);
 	void (*prefetch_disable)(void);
 	void (*set_debug)(unsigned long);
-	void (*resume)(void);
 };
 
 #ifdef CONFIG_OUTER_CACHE
@@ -75,12 +74,6 @@ static inline void outer_disable(void)
 {
 	if (outer_cache.disable)
 		outer_cache.disable();
-}
-
-static inline void outer_resume(void)
-{
-	if (outer_cache.resume)
-		outer_cache.resume();
 }
 
 static inline void outer_prefetch_enable(void)
