@@ -98,6 +98,9 @@ static int ricoh_mmc_probe_slot(struct sdhci_pci_slot *slot)
 		SDHCI_TIMEOUT_CLK_UNIT |
 		SDHCI_CAN_VDD_330 |
 		SDHCI_CAN_DO_SDMA;
+
+	slot->host->mmc->caps2 = MMC_CAP2_BOOTPART_NOACC;
+
 	return 0;
 }
 
@@ -143,12 +146,6 @@ static const struct sdhci_pci_fixes sdhci_cafe = {
 			  SDHCI_QUIRK_BROKEN_TIMEOUT_VAL,
 };
 
-static int mrst_hc_probe_slot(struct sdhci_pci_slot *slot)
-{
-	slot->host->mmc->caps |= MMC_CAP_8_BIT_DATA;
-	return 0;
-}
-
 /*
  * ADMA operation is disabled for Moorestown platform due to
  * hardware bugs.
@@ -163,15 +160,8 @@ static int mrst_hc_probe(struct sdhci_pci_chip *chip)
 	return 0;
 }
 
-static int mfd_emmc_probe_slot(struct sdhci_pci_slot *slot)
-{
-	slot->host->mmc->caps |= MMC_CAP_8_BIT_DATA;
-	return 0;
-}
-
 static const struct sdhci_pci_fixes sdhci_intel_mrst_hc0 = {
 	.quirks		= SDHCI_QUIRK_BROKEN_ADMA | SDHCI_QUIRK_NO_HISPD_BIT,
-	.probe_slot	= mrst_hc_probe_slot,
 };
 
 static const struct sdhci_pci_fixes sdhci_intel_mrst_hc1_hc2 = {
@@ -183,13 +173,8 @@ static const struct sdhci_pci_fixes sdhci_intel_mfd_sd = {
 	.quirks		= SDHCI_QUIRK_NO_ENDATTR_IN_NOPDESC,
 };
 
-static const struct sdhci_pci_fixes sdhci_intel_mfd_sdio = {
+static const struct sdhci_pci_fixes sdhci_intel_mfd_emmc_sdio = {
 	.quirks		= SDHCI_QUIRK_NO_ENDATTR_IN_NOPDESC,
-};
-
-static const struct sdhci_pci_fixes sdhci_intel_mfd_emmc = {
-	.quirks		= SDHCI_QUIRK_NO_ENDATTR_IN_NOPDESC,
-	.probe_slot	= mfd_emmc_probe_slot,
 };
 
 /* O2Micro extra registers */
@@ -700,7 +685,7 @@ static const struct pci_device_id pci_ids[] __devinitdata = {
 		.device		= PCI_DEVICE_ID_INTEL_MFD_SDIO1,
 		.subvendor	= PCI_ANY_ID,
 		.subdevice	= PCI_ANY_ID,
-		.driver_data	= (kernel_ulong_t)&sdhci_intel_mfd_sdio,
+		.driver_data	= (kernel_ulong_t)&sdhci_intel_mfd_emmc_sdio,
 	},
 
 	{
@@ -708,7 +693,7 @@ static const struct pci_device_id pci_ids[] __devinitdata = {
 		.device		= PCI_DEVICE_ID_INTEL_MFD_SDIO2,
 		.subvendor	= PCI_ANY_ID,
 		.subdevice	= PCI_ANY_ID,
-		.driver_data	= (kernel_ulong_t)&sdhci_intel_mfd_sdio,
+		.driver_data	= (kernel_ulong_t)&sdhci_intel_mfd_emmc_sdio,
 	},
 
 	{
@@ -716,7 +701,7 @@ static const struct pci_device_id pci_ids[] __devinitdata = {
 		.device		= PCI_DEVICE_ID_INTEL_MFD_EMMC0,
 		.subvendor	= PCI_ANY_ID,
 		.subdevice	= PCI_ANY_ID,
-		.driver_data	= (kernel_ulong_t)&sdhci_intel_mfd_emmc,
+		.driver_data	= (kernel_ulong_t)&sdhci_intel_mfd_emmc_sdio,
 	},
 
 	{
@@ -724,7 +709,7 @@ static const struct pci_device_id pci_ids[] __devinitdata = {
 		.device		= PCI_DEVICE_ID_INTEL_MFD_EMMC1,
 		.subvendor	= PCI_ANY_ID,
 		.subdevice	= PCI_ANY_ID,
-		.driver_data	= (kernel_ulong_t)&sdhci_intel_mfd_emmc,
+		.driver_data	= (kernel_ulong_t)&sdhci_intel_mfd_emmc_sdio,
 	},
 
 	{
@@ -807,34 +792,8 @@ static int sdhci_pci_enable_dma(struct sdhci_host *host)
 	return 0;
 }
 
-static int sdhci_pci_8bit_width(struct sdhci_host *host, int width)
-{
-	u8 ctrl;
-
-	ctrl = sdhci_readb(host, SDHCI_HOST_CONTROL);
-
-	switch (width) {
-	case MMC_BUS_WIDTH_8:
-		ctrl |= SDHCI_CTRL_8BITBUS;
-		ctrl &= ~SDHCI_CTRL_4BITBUS;
-		break;
-	case MMC_BUS_WIDTH_4:
-		ctrl |= SDHCI_CTRL_4BITBUS;
-		ctrl &= ~SDHCI_CTRL_8BITBUS;
-		break;
-	default:
-		ctrl &= ~(SDHCI_CTRL_8BITBUS | SDHCI_CTRL_4BITBUS);
-		break;
-	}
-
-	sdhci_writeb(host, ctrl, SDHCI_HOST_CONTROL);
-
-	return 0;
-}
-
 static struct sdhci_ops sdhci_pci_ops = {
 	.enable_dma	= sdhci_pci_enable_dma,
-	.platform_8bit_width	= sdhci_pci_8bit_width,
 };
 
 /*****************************************************************************\

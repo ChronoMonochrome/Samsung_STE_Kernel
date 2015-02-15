@@ -11,7 +11,6 @@
  */
 
 #include <linux/device.h>
-#include <linux/dma-mapping.h>
 #include <linux/dmaengine.h>
 #include <linux/mfd/tmio.h>
 #include <linux/mmc/host.h>
@@ -23,14 +22,11 @@
 
 #define TMIO_MMC_MIN_DMA_LEN 8
 
-void tmio_mmc_enable_dma(struct tmio_mmc_host *host, bool enable)
+static void tmio_mmc_enable_dma(struct tmio_mmc_host *host, bool enable)
 {
-	if (!host->chan_tx || !host->chan_rx)
-		return;
-
 #if defined(CONFIG_SUPERH) || defined(CONFIG_ARCH_SHMOBILE)
 	/* Switch DMA mode on or off - SuperH specific? */
-	sd_ctrl_write16(host, CTL_DMA_ENABLE, enable ? 2 : 0);
+	writew(enable ? 2 : 0, host->ctl + (0xd8 << host->bus_shift));
 #endif
 }
 
