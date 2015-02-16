@@ -50,6 +50,7 @@
 #include <linux/mm.h>
 #include <linux/device.h>
 #include <linux/dmaengine.h>
+#include <linux/dma-mapping.h>
 #include <linux/hardirq.h>
 #include <linux/spinlock.h>
 #include <linux/percpu.h>
