@@ -49,10 +49,15 @@ struct sdma_script_start_addrs {
  * struct sdma_platform_data - platform specific data for SDMA engine
  *
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+ * @sdma_version	The version of this SDMA engine
+>>>>>>> parent of cb7dee8... Merge branch 'next/dt' of git://git.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
  * @fw_name		The firmware name
  * @script_addrs	SDMA scripts addresses in SDMA ROM
  */
 struct sdma_platform_data {
+	int sdma_version;
 	char *fw_name;
 =======
  * @sdma_version	The version of this SDMA engine

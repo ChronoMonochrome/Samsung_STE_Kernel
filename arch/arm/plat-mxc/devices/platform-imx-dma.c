@@ -47,7 +47,11 @@ struct imx_imx_sdma_data imx35_imx_sdma_data __initdata =
 #endif /* ifdef CONFIG_SOC_IMX35 */
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 struct platform_device __init __maybe_unused *imx_add_imx_sdma(char *name,
+=======
+struct platform_device __init __maybe_unused *imx_add_imx_sdma(
+>>>>>>> parent of cb7dee8... Merge branch 'next/dt' of git://git.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 	resource_size_t iobase, int irq, struct sdma_platform_data *pdata)
 =======
 #ifdef CONFIG_SOC_IMX51
@@ -72,7 +76,11 @@ static struct platform_device __init __maybe_unused *imx_add_imx_sdma(
 	};
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 	return platform_device_register_resndata(&mxc_ahb_bus, name,
+=======
+	return platform_device_register_resndata(&mxc_ahb_bus, "imx-sdma",
+>>>>>>> parent of cb7dee8... Merge branch 'next/dt' of git://git.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 			-1, res, ARRAY_SIZE(res), pdata, sizeof(*pdata));
 =======
 	return imx_add_platform_device("imx-sdma", -1,

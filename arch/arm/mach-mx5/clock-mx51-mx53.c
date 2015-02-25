@@ -1412,13 +1412,11 @@ DEFINE_CLOCK(ipu_di1_clk, 0, MXC_CCM_CCGR6, MXC_CCM_CCGRx_CG6_OFFSET,
        },
 
 static struct clk_lookup mx51_lookups[] = {
-	/* i.mx51 has the i.mx21 type uart */
-	_REGISTER_CLOCK("imx21-uart.0", NULL, uart1_clk)
-	_REGISTER_CLOCK("imx21-uart.1", NULL, uart2_clk)
-	_REGISTER_CLOCK("imx21-uart.2", NULL, uart3_clk)
+	_REGISTER_CLOCK("imx-uart.0", NULL, uart1_clk)
+	_REGISTER_CLOCK("imx-uart.1", NULL, uart2_clk)
+	_REGISTER_CLOCK("imx-uart.2", NULL, uart3_clk)
 	_REGISTER_CLOCK(NULL, "gpt", gpt_clk)
-	/* i.mx51 has the i.mx27 type fec */
-	_REGISTER_CLOCK("imx27-fec.0", NULL, fec_clk)
+	_REGISTER_CLOCK("fec.0", NULL, fec_clk)
 	_REGISTER_CLOCK("mxc_pwm.0", "pwm", pwm1_clk)
 	_REGISTER_CLOCK("mxc_pwm.1", "pwm", pwm2_clk)
 	_REGISTER_CLOCK("imx-i2c.0", NULL, i2c1_clk)
@@ -1438,8 +1436,7 @@ static struct clk_lookup mx51_lookups[] = {
 	_REGISTER_CLOCK("imx-ssi.0", NULL, ssi1_clk)
 	_REGISTER_CLOCK("imx-ssi.1", NULL, ssi2_clk)
 	_REGISTER_CLOCK("imx-ssi.2", NULL, ssi3_clk)
-	/* i.mx51 has the i.mx35 type sdma */
-	_REGISTER_CLOCK("imx35-sdma", NULL, sdma_clk)
+	_REGISTER_CLOCK("imx-sdma", NULL, sdma_clk)
 	_REGISTER_CLOCK(NULL, "ckih", ckih_clk)
 	_REGISTER_CLOCK(NULL, "ckih2", ckih2_clk)
 	_REGISTER_CLOCK(NULL, "gpt_32k", gpt_32k_clk)
@@ -1447,10 +1444,10 @@ static struct clk_lookup mx51_lookups[] = {
 	_REGISTER_CLOCK("imx51-ecspi.1", NULL, ecspi2_clk)
 	/* i.mx51 has the i.mx35 type cspi */
 	_REGISTER_CLOCK("imx35-cspi.0", NULL, cspi_clk)
-	_REGISTER_CLOCK("sdhci-esdhc-imx51.0", NULL, esdhc1_clk)
-	_REGISTER_CLOCK("sdhci-esdhc-imx51.1", NULL, esdhc2_clk)
-	_REGISTER_CLOCK("sdhci-esdhc-imx51.2", NULL, esdhc3_clk)
-	_REGISTER_CLOCK("sdhci-esdhc-imx51.3", NULL, esdhc4_clk)
+	_REGISTER_CLOCK("sdhci-esdhc-imx.0", NULL, esdhc1_clk)
+	_REGISTER_CLOCK("sdhci-esdhc-imx.1", NULL, esdhc2_clk)
+	_REGISTER_CLOCK("sdhci-esdhc-imx.2", NULL, esdhc3_clk)
+	_REGISTER_CLOCK("sdhci-esdhc-imx.3", NULL, esdhc4_clk)
 	_REGISTER_CLOCK(NULL, "cpu_clk", cpu_clk)
 	_REGISTER_CLOCK(NULL, "iim_clk", iim_clk)
 	_REGISTER_CLOCK("imx2-wdt.0", NULL, dummy_clk)
@@ -1464,6 +1461,7 @@ static struct clk_lookup mx51_lookups[] = {
 
 static struct clk_lookup mx53_lookups[] = {
 <<<<<<< HEAD
+<<<<<<< HEAD
 	/* i.mx53 has the i.mx21 type uart */
 	_REGISTER_CLOCK("imx21-uart.0", NULL, uart1_clk)
 	_REGISTER_CLOCK("imx21-uart.1", NULL, uart2_clk)
@@ -1475,34 +1473,46 @@ static struct clk_lookup mx53_lookups[] = {
 	_REGISTER_CLOCK("imx-uart.1", NULL, uart2_clk)
 	_REGISTER_CLOCK("imx-uart.2", NULL, uart3_clk)
 >>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
+=======
+	_REGISTER_CLOCK("imx-uart.0", NULL, uart1_clk)
+	_REGISTER_CLOCK("imx-uart.1", NULL, uart2_clk)
+	_REGISTER_CLOCK("imx-uart.2", NULL, uart3_clk)
+	_REGISTER_CLOCK("imx-uart.3", NULL, uart4_clk)
+	_REGISTER_CLOCK("imx-uart.4", NULL, uart5_clk)
+>>>>>>> parent of cb7dee8... Merge branch 'next/dt' of git://git.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 	_REGISTER_CLOCK(NULL, "gpt", gpt_clk)
-	/* i.mx53 has the i.mx25 type fec */
-	_REGISTER_CLOCK("imx25-fec.0", NULL, fec_clk)
+	_REGISTER_CLOCK("fec.0", NULL, fec_clk)
 	_REGISTER_CLOCK(NULL, "iim_clk", iim_clk)
 	_REGISTER_CLOCK("imx-i2c.0", NULL, i2c1_clk)
 	_REGISTER_CLOCK("imx-i2c.1", NULL, i2c2_clk)
 <<<<<<< HEAD
 	_REGISTER_CLOCK("imx-i2c.2", NULL, i2c3_mx53_clk)
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> parent of cb7dee8... Merge branch 'next/dt' of git://git.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 	_REGISTER_CLOCK("sdhci-esdhc-imx.0", NULL, esdhc1_clk)
 	_REGISTER_CLOCK("sdhci-esdhc-imx.1", NULL, esdhc2_mx53_clk)
 	_REGISTER_CLOCK("sdhci-esdhc-imx.2", NULL, esdhc3_mx53_clk)
 	_REGISTER_CLOCK("sdhci-esdhc-imx.3", NULL, esdhc4_mx53_clk)
+<<<<<<< HEAD
 >>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
+=======
+>>>>>>> parent of cb7dee8... Merge branch 'next/dt' of git://git.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 	/* i.mx53 has the i.mx51 type ecspi */
 	_REGISTER_CLOCK("imx51-ecspi.0", NULL, ecspi1_clk)
 	_REGISTER_CLOCK("imx51-ecspi.1", NULL, ecspi2_clk)
 	/* i.mx53 has the i.mx25 type cspi */
 	_REGISTER_CLOCK("imx35-cspi.0", NULL, cspi_clk)
-	_REGISTER_CLOCK("sdhci-esdhc-imx53.0", NULL, esdhc1_clk)
-	_REGISTER_CLOCK("sdhci-esdhc-imx53.1", NULL, esdhc2_mx53_clk)
-	_REGISTER_CLOCK("sdhci-esdhc-imx53.2", NULL, esdhc3_mx53_clk)
-	_REGISTER_CLOCK("sdhci-esdhc-imx53.3", NULL, esdhc4_mx53_clk)
 	_REGISTER_CLOCK("imx2-wdt.0", NULL, dummy_clk)
 	_REGISTER_CLOCK("imx2-wdt.1", NULL, dummy_clk)
 <<<<<<< HEAD
+<<<<<<< HEAD
 	/* i.mx53 has the i.mx35 type sdma */
 	_REGISTER_CLOCK("imx35-sdma", NULL, sdma_clk)
+=======
+	_REGISTER_CLOCK("imx-sdma", NULL, sdma_clk)
+>>>>>>> parent of cb7dee8... Merge branch 'next/dt' of git://git.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 	_REGISTER_CLOCK("imx-ssi.0", NULL, ssi1_clk)
 	_REGISTER_CLOCK("imx-ssi.1", NULL, ssi2_clk)
 	_REGISTER_CLOCK("imx-ssi.2", NULL, ssi3_clk)

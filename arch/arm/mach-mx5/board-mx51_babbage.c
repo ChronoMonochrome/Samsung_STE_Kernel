@@ -42,6 +42,11 @@
 #define BABBAGE_ECSPI1_CS0	IMX_GPIO_NR(4, 24)
 #define BABBAGE_ECSPI1_CS1	IMX_GPIO_NR(4, 25)
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+#define BABBAGE_SD1_CD		IMX_GPIO_NR(1, 0)
+#define BABBAGE_SD1_WP		IMX_GPIO_NR(1, 1)
+>>>>>>> parent of cb7dee8... Merge branch 'next/dt' of git://git.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 #define BABBAGE_SD2_CD		IMX_GPIO_NR(1, 6)
 #define BABBAGE_SD2_WP		IMX_GPIO_NR(1, 5)
 =======
@@ -148,11 +153,16 @@ static iomux_v3_cfg_t mx51babbage_pads[] = {
 	MX51_PAD_SD1_DATA2__SD1_DATA2,
 	MX51_PAD_SD1_DATA3__SD1_DATA3,
 <<<<<<< HEAD
+<<<<<<< HEAD
 	/* CD/WP from controller */
 	MX51_PAD_GPIO1_0__SD1_CD,
 	MX51_PAD_GPIO1_1__SD1_WP,
 =======
 >>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
+=======
+	MX51_PAD_GPIO1_0__GPIO1_0,
+	MX51_PAD_GPIO1_1__GPIO1_1,
+>>>>>>> parent of cb7dee8... Merge branch 'next/dt' of git://git.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 
 	/* SD 2 */
 	MX51_PAD_SD2_CMD__SD2_CMD,
@@ -162,7 +172,10 @@ static iomux_v3_cfg_t mx51babbage_pads[] = {
 	MX51_PAD_SD2_DATA2__SD2_DATA2,
 	MX51_PAD_SD2_DATA3__SD2_DATA3,
 <<<<<<< HEAD
+<<<<<<< HEAD
 	/* CD/WP gpio */
+=======
+>>>>>>> parent of cb7dee8... Merge branch 'next/dt' of git://git.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 	MX51_PAD_GPIO1_6__GPIO1_6,
 	MX51_PAD_GPIO1_5__GPIO1_5,
 =======
@@ -350,15 +363,13 @@ static const struct spi_imx_master mx51_babbage_spi_pdata __initconst = {
 
 <<<<<<< HEAD
 static const struct esdhc_platform_data mx51_babbage_sd1_data __initconst = {
-	.cd_type = ESDHC_CD_CONTROLLER,
-	.wp_type = ESDHC_WP_CONTROLLER,
+	.cd_gpio = BABBAGE_SD1_CD,
+	.wp_gpio = BABBAGE_SD1_WP,
 };
 
 static const struct esdhc_platform_data mx51_babbage_sd2_data __initconst = {
 	.cd_gpio = BABBAGE_SD2_CD,
 	.wp_gpio = BABBAGE_SD2_WP,
-	.cd_type = ESDHC_CD_GPIO,
-	.wp_type = ESDHC_WP_GPIO,
 };
 
 =======

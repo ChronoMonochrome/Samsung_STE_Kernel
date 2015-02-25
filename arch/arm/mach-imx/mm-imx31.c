@@ -69,6 +69,7 @@ static struct sdma_script_start_addrs imx31_to2_sdma_script __initdata = {
 };
 
 static struct sdma_platform_data imx31_sdma_pdata __initdata = {
+	.sdma_version = 1,
 	.fw_name = "sdma-imx31-to2.bin",
 	.script_addrs = &imx31_to2_sdma_script,
 };
@@ -88,7 +89,11 @@ void __init imx31_soc_init(void)
 		imx31_sdma_pdata.script_addrs = &imx31_to1_sdma_script;
 	}
 
+<<<<<<< HEAD
 	imx_add_imx_sdma("imx31-sdma", MX31_SDMA_BASE_ADDR, MX31_INT_SDMA, &imx31_sdma_pdata);
 =======
 >>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
+=======
+	imx_add_imx_sdma(MX31_SDMA_BASE_ADDR, MX31_INT_SDMA, &imx31_sdma_pdata);
+>>>>>>> parent of cb7dee8... Merge branch 'next/dt' of git://git.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 }

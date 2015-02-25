@@ -28,7 +28,6 @@ static inline struct platform_device *imx_add_platform_device(
 
 #include <linux/fec.h>
 struct imx_fec_data {
-	const char *devid;
 	resource_size_t iobase;
 	resource_size_t irq;
 };
@@ -275,7 +274,6 @@ struct platform_device *__init imx_add_mxc_w1(
 
 #include <mach/esdhc.h>
 struct imx_sdhci_esdhc_imx_data {
-	const char *devid;
 	int id;
 	resource_size_t iobase;
 	resource_size_t irq;
@@ -298,7 +296,7 @@ struct platform_device *__init imx_add_spi_imx(
 <<<<<<< HEAD
 
 struct platform_device *imx_add_imx_dma(void);
-struct platform_device *imx_add_imx_sdma(char *name,
+struct platform_device *imx_add_imx_sdma(
 	resource_size_t iobase, int irq, struct sdma_platform_data *pdata);
 =======
 >>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
