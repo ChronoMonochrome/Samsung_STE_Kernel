@@ -208,14 +208,14 @@ static inline void atomic_clear_mask(unsigned long mask, unsigned long *addr)
 
 #define atomic_xchg(v, new) (xchg(&((v)->counter), new))
 
-static inline int __atomic_add_unless(atomic_t *v, int a, int u)
+static inline int atomic_add_unless(atomic_t *v, int a, int u)
 {
 	int c, old;
 
 	c = atomic_read(v);
 	while (c != u && (old = atomic_cmpxchg((v), c, c + a)) != c)
 		c = old;
-	return c;
+	return c != u;
 }
 #define atomic_inc_not_zero(v) atomic_add_unless((v), 1, 0)
 
