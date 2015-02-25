@@ -19,7 +19,6 @@
  */
 
 #include <linux/types.h>
-#include <linux/i8253.h>
 #include <linux/init.h>
 #include <linux/kernel_stat.h>
 #include <linux/sched.h>
@@ -32,6 +31,7 @@
 #include <asm/mipsregs.h>
 #include <asm/mipsmtregs.h>
 #include <asm/hardirq.h>
+#include <asm/i8253.h>
 #include <asm/irq.h>
 #include <asm/div64.h>
 #include <asm/cpu.h>

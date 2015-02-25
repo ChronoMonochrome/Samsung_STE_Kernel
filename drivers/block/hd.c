@@ -155,7 +155,7 @@ else \
 
 #if (HD_DELAY > 0)
 
-#include <linux/i8253.h>
+#include <asm/i8253.h>
 
 unsigned long last_req;
 
