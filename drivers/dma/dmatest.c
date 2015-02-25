@@ -8,7 +8,6 @@
  * published by the Free Software Foundation.
  */
 #include <linux/delay.h>
-#include <linux/dma-mapping.h>
 #include <linux/dmaengine.h>
 #include <linux/init.h>
 #include <linux/kthread.h>

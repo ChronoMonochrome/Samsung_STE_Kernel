@@ -1114,25 +1114,13 @@ static int __init sdma_get_firmware(struct sdma_engine *sdma,
 	const struct sdma_script_start_addrs *addr;
 	unsigned short *ram_code;
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-	ret = request_firmware(&fw, fw_name, sdma->dev);
-	if (ret)
-=======
 	fwname = kasprintf(GFP_KERNEL, "sdma-%s-to%d.bin", cpu_name, to_version);
-=======
-	fwname = kasprintf(GFP_KERNEL, "%s", fw_name);
->>>>>>> parent of cb7dee8... Merge branch 'next/dt' of git://git.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 	if (!fwname)
 		return -ENOMEM;
 
 	ret = request_firmware(&fw, fwname, sdma->dev);
 	if (ret) {
 		kfree(fwname);
-<<<<<<< HEAD
->>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
-=======
->>>>>>> parent of cb7dee8... Merge branch 'next/dt' of git://git.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 		return ret;
 	}
 	kfree(fwname);
@@ -1293,10 +1281,8 @@ static int __init sdma_probe(struct platform_device *pdev)
 		goto err_request_irq;
 
 	sdma->script_addrs = kzalloc(sizeof(*sdma->script_addrs), GFP_KERNEL);
-	if (!sdma->script_addrs) {
-		ret = -ENOMEM;
+	if (!sdma->script_addrs)
 		goto err_alloc;
-	}
 
 	sdma->version = pdata->sdma_version;
 
@@ -1331,35 +1317,7 @@ static int __init sdma_probe(struct platform_device *pdev)
 	if (pdata->script_addrs)
 		sdma_add_scripts(sdma, pdata->script_addrs);
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-	if (pdata) {
-		sdma_get_firmware(sdma, pdata->fw_name);
-	} else {
-		/*
-		 * Because that device tree does not encode ROM script address,
-		 * the RAM script in firmware is mandatory for device tree
-		 * probe, otherwise it fails.
-		 */
-		ret = of_property_read_string(np, "fsl,sdma-ram-script-name",
-					      &fw_name);
-		if (ret) {
-			dev_err(&pdev->dev, "failed to get firmware name\n");
-			goto err_init;
-		}
-
-		ret = sdma_get_firmware(sdma, fw_name);
-		if (ret) {
-			dev_err(&pdev->dev, "failed to get firmware\n");
-			goto err_init;
-		}
-	}
-=======
 	sdma_get_firmware(sdma, pdata->cpu_name, pdata->to_version);
->>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
-=======
-	sdma_get_firmware(sdma, pdata->fw_name);
->>>>>>> parent of cb7dee8... Merge branch 'next/dt' of git://git.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 
 	sdma->dma_device.dev = &pdev->dev;
 
