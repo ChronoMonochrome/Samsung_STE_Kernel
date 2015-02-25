@@ -31,8 +31,6 @@
 #include <linux/console.h>
 #include <trace/events/power.h>
 
-#include <asm/suspend.h>
-
 #include <plat/sram.h>
 #include "clockdomain.h"
 #include "powerdomain.h"
@@ -41,6 +39,8 @@
 #include <plat/prcm.h>
 #include <plat/gpmc.h>
 #include <plat/dma.h>
+
+#include <asm/tlbflush.h>
 
 #include "cm2xxx_3xxx.h"
 #include "cm-regbits-34xx.h"
@@ -64,6 +64,11 @@ static inline bool is_suspending(void)
 }
 #endif
 
+/* Scratchpad offsets */
+#define OMAP343X_TABLE_ADDRESS_OFFSET	   0xc4
+#define OMAP343X_TABLE_VALUE_OFFSET	   0xc0
+#define OMAP343X_CONTROL_REG_VALUE_OFFSET  0xc8
+
 /* pm34xx errata defined in pm.h */
 u16 pm34xx_errata;
 
@@ -78,8 +83,9 @@ struct power_state {
 
 static LIST_HEAD(pwrst_list);
 
+static void (*_omap_sram_idle)(u32 *addr, int save_state);
+
 static int (*_omap_save_secure_sram)(u32 *addr);
-void (*omap3_do_wfi_sram)(void);
 
 static struct powerdomain *mpu_pwrdm, *neon_pwrdm;
 static struct powerdomain *core_pwrdm, *per_pwrdm;
@@ -306,25 +312,28 @@ static irqreturn_t prcm_interrupt_handler (int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-static void omap34xx_save_context(u32 *save)
+/* Function to restore the table entry that was modified for enabling MMU */
+static void restore_table_entry(void)
 {
-	u32 val;
+	void __iomem *scratchpad_address;
+	u32 previous_value, control_reg_value;
+	u32 *address;
 
-	/* Read Auxiliary Control Register */
-	asm("mrc p15, 0, %0, c1, c0, 1" : "=r" (val));
-	*save++ = 1;
-	*save++ = val;
+	scratchpad_address = OMAP2_L4_IO_ADDRESS(OMAP343X_SCRATCHPAD);
 
-	/* Read L2 AUX ctrl register */
-	asm("mrc p15, 1, %0, c9, c0, 2" : "=r" (val));
-	*save++ = 1;
-	*save++ = val;
-}
-
-static int omap34xx_do_sram_idle(unsigned long save_state)
-{
-	omap34xx_cpu_suspend(save_state);
-	return 0;
+	/* Get address of entry that was modified */
+	address = (u32 *)__raw_readl(scratchpad_address +
+				     OMAP343X_TABLE_ADDRESS_OFFSET);
+	/* Get the previous value which needs to be restored */
+	previous_value = __raw_readl(scratchpad_address +
+				     OMAP343X_TABLE_VALUE_OFFSET);
+	address = __va(address);
+	*address = previous_value;
+	flush_tlb_all();
+	control_reg_value = __raw_readl(scratchpad_address
+					+ OMAP343X_CONTROL_REG_VALUE_OFFSET);
+	/* This will enable caches and prediction */
+	set_cr(control_reg_value);
 }
 
 void omap_sram_idle(void)
@@ -342,6 +351,9 @@ void omap_sram_idle(void)
 	int per_going_off;
 	int core_prev_state, per_prev_state;
 	u32 sdrc_pwr = 0;
+
+	if (!_omap_sram_idle)
+		return;
 
 	pwrdm_clear_all_prev_pwrst(mpu_pwrdm);
 	pwrdm_clear_all_prev_pwrst(neon_pwrdm);
@@ -420,22 +432,22 @@ void omap_sram_idle(void)
 		sdrc_pwr = sdrc_read_reg(SDRC_POWER);
 
 	/*
-	 * omap3_arm_context is the location where some ARM context
-	 * get saved. The rest is placed on the stack, and restored
-	 * from there before resuming.
+	 * omap3_arm_context is the location where ARM registers
+	 * get saved. The restore path then reads from this
+	 * location and restores them back.
 	 */
-	if (save_state)
-		omap34xx_save_context(omap3_arm_context);
-	if (save_state == 1 || save_state == 3)
-		cpu_suspend(save_state, omap34xx_do_sram_idle);
-	else
-		omap34xx_do_sram_idle(save_state);
+	_omap_sram_idle(omap3_arm_context, save_state);
+	cpu_init();
 
 	/* Restore normal SDRC POWER settings */
 	if (omap_rev() >= OMAP3430_REV_ES3_0 &&
 	    omap_type() != OMAP2_DEVICE_TYPE_GP &&
 	    core_next_state == PWRDM_POWER_OFF)
 		sdrc_write_reg(sdrc_pwr, SDRC_POWER);
+
+	/* Restore table entry modified during MMU restoration */
+	if (pwrdm_read_prev_pwrst(mpu_pwrdm) == PWRDM_POWER_OFF)
+		restore_table_entry();
 
 	/* CORE */
 	if (core_next_state < PWRDM_POWER_ON) {
@@ -834,17 +846,10 @@ static int __init clkdms_setup(struct clockdomain *clkdm, void *unused)
 	return 0;
 }
 
-/*
- * Push functions to SRAM
- *
- * The minimum set of functions is pushed to SRAM for execution:
- * - omap3_do_wfi for erratum i581 WA,
- * - save_secure_ram_context for security extensions.
- */
 void omap_push_sram_idle(void)
 {
-	omap3_do_wfi_sram = omap_sram_push(omap3_do_wfi, omap3_do_wfi_sz);
-
+	_omap_sram_idle = omap_sram_push(omap34xx_cpu_suspend,
+					omap34xx_cpu_suspend_sz);
 	if (omap_type() != OMAP2_DEVICE_TYPE_GP)
 		_omap_save_secure_sram = omap_sram_push(save_secure_ram_context,
 				save_secure_ram_context_sz);
@@ -909,6 +914,7 @@ static int __init omap3_pm_init(void)
 	per_clkdm = clkdm_lookup("per_clkdm");
 	core_clkdm = clkdm_lookup("core_clkdm");
 
+	omap_push_sram_idle();
 #ifdef CONFIG_SUSPEND
 	suspend_set_ops(&omap_pm_ops);
 #endif /* CONFIG_SUSPEND */

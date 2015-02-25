@@ -165,3 +165,6 @@
 #endif
 
 #endif	/* MULTI_OMAP2 */
+
+		.macro	irq_prio_table
+		.endm
