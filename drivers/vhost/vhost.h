@@ -11,7 +11,7 @@
 #include <linux/uio.h>
 #include <linux/virtio_config.h>
 #include <linux/virtio_ring.h>
-#include <linux/atomic.h>
+#include <asm/atomic.h>
 
 /* This is for zerocopy, used buffer len is set to 1 when lower device DMA
  * done */

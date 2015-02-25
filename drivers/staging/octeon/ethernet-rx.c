@@ -42,7 +42,7 @@
 #include <net/xfrm.h>
 #endif /* CONFIG_XFRM */
 
-#include <linux/atomic.h>
+#include <asm/atomic.h>
 
 #include <asm/octeon/octeon.h>
 

@@ -97,6 +97,7 @@ static inline void atomic_set_mask(int mask, atomic_t *v)
 		c = old;					\
 	c;							\
 })
+#define atomic_inc_not_zero(v) atomic_add_unless((v), 1, 0)
 
 /*
  * atomic_inc_and_test - increment and test
