@@ -48,18 +48,10 @@ struct modversion_info
 
 struct module;
 
-struct module_kobject {
-	struct kobject kobj;
-	struct module *mod;
-	struct kobject *drivers_dir;
-	struct module_param_attrs *mp;
-};
-
 struct module_attribute {
-	struct attribute attr;
-	ssize_t (*show)(struct module_attribute *, struct module_kobject *,
-			char *);
-	ssize_t (*store)(struct module_attribute *, struct module_kobject *,
+        struct attribute attr;
+        ssize_t (*show)(struct module_attribute *, struct module *, char *);
+        ssize_t (*store)(struct module_attribute *, struct module *,
 			 const char *, size_t count);
 	void (*setup)(struct module *, const char *);
 	int (*test)(struct module *);
@@ -73,9 +65,15 @@ struct module_version_attribute {
 } __attribute__ ((__aligned__(sizeof(void *))));
 
 extern ssize_t __modver_version_show(struct module_attribute *,
-				     struct module_kobject *, char *);
+				     struct module *, char *);
 
-extern struct module_attribute module_uevent;
+struct module_kobject
+{
+	struct kobject kobj;
+	struct module *mod;
+	struct kobject *drivers_dir;
+	struct module_param_attrs *mp;
+};
 
 /* These are either module local, or the kernel's dummy ones. */
 extern int init_module(void);
