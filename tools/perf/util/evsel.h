@@ -61,7 +61,6 @@ struct perf_evsel {
 		off_t		id_offset;
 	};
 	struct cgroup_sel	*cgrp;
-	bool 			supported;
 };
 
 struct cpu_map;

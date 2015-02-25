@@ -14,8 +14,7 @@ enum hist_filter {
 
 struct callchain_param	callchain_param = {
 	.mode	= CHAIN_GRAPH_REL,
-	.min_percent = 0.5,
-	.order  = ORDER_CALLEE
+	.min_percent = 0.5
 };
 
 u16 hists__col_len(struct hists *self, enum hist_column col)
@@ -846,9 +845,6 @@ size_t hists__fprintf(struct hists *self, struct hists *pair,
 print_entries:
 	for (nd = rb_first(&self->entries); nd; nd = rb_next(nd)) {
 		struct hist_entry *h = rb_entry(nd, struct hist_entry, rb_node);
-
-		if (h->filtered)
-			continue;
 
 		if (show_displacement) {
 			if (h->pair != NULL)

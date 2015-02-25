@@ -14,11 +14,6 @@ enum chain_mode {
 	CHAIN_GRAPH_REL
 };
 
-enum chain_order {
-	ORDER_CALLER,
-	ORDER_CALLEE
-};
-
 struct callchain_node {
 	struct callchain_node	*parent;
 	struct list_head	siblings;
@@ -46,7 +41,6 @@ struct callchain_param {
 	u32			print_limit;
 	double			min_percent;
 	sort_chain_func_t	sort;
-	enum chain_order	order;
 };
 
 struct callchain_list {

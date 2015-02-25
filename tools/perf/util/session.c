@@ -12,7 +12,6 @@
 #include "session.h"
 #include "sort.h"
 #include "util.h"
-#include "cpumap.h"
 
 static int perf_session__open(struct perf_session *self, bool force)
 {
@@ -248,13 +247,8 @@ int perf_session__resolve_callchain(struct perf_session *self,
 	callchain_cursor_reset(&self->callchain_cursor);
 
 	for (i = 0; i < chain->nr; i++) {
-		u64 ip;
+		u64 ip = chain->ips[i];
 		struct addr_location al;
-
-		if (callchain_param.order == ORDER_CALLEE)
-			ip = chain->ips[i];
-		else
-			ip = chain->ips[chain->nr - i - 1];
 
 		if (ip >= PERF_CONTEXT_MAX) {
 			switch (ip) {
@@ -413,26 +407,20 @@ static void perf_event__read_swap(union perf_event *event)
 	event->read.id		 = bswap_64(event->read.id);
 }
 
-/* exported for swapping attributes in file header */
-void perf_event__attr_swap(struct perf_event_attr *attr)
-{
-	attr->type		= bswap_32(attr->type);
-	attr->size		= bswap_32(attr->size);
-	attr->config		= bswap_64(attr->config);
-	attr->sample_period	= bswap_64(attr->sample_period);
-	attr->sample_type	= bswap_64(attr->sample_type);
-	attr->read_format	= bswap_64(attr->read_format);
-	attr->wakeup_events	= bswap_32(attr->wakeup_events);
-	attr->bp_type		= bswap_32(attr->bp_type);
-	attr->bp_addr		= bswap_64(attr->bp_addr);
-	attr->bp_len		= bswap_64(attr->bp_len);
-}
-
-static void perf_event__hdr_attr_swap(union perf_event *event)
+static void perf_event__attr_swap(union perf_event *event)
 {
 	size_t size;
 
-	perf_event__attr_swap(&event->attr.attr);
+	event->attr.attr.type		= bswap_32(event->attr.attr.type);
+	event->attr.attr.size		= bswap_32(event->attr.attr.size);
+	event->attr.attr.config		= bswap_64(event->attr.attr.config);
+	event->attr.attr.sample_period	= bswap_64(event->attr.attr.sample_period);
+	event->attr.attr.sample_type	= bswap_64(event->attr.attr.sample_type);
+	event->attr.attr.read_format	= bswap_64(event->attr.attr.read_format);
+	event->attr.attr.wakeup_events	= bswap_32(event->attr.attr.wakeup_events);
+	event->attr.attr.bp_type	= bswap_32(event->attr.attr.bp_type);
+	event->attr.attr.bp_addr	= bswap_64(event->attr.attr.bp_addr);
+	event->attr.attr.bp_len		= bswap_64(event->attr.attr.bp_len);
 
 	size = event->header.size;
 	size -= (void *)&event->attr.id - (void *)event;
@@ -460,7 +448,7 @@ static perf_event__swap_op perf_event__swap_ops[] = {
 	[PERF_RECORD_LOST]		  = perf_event__all64_swap,
 	[PERF_RECORD_READ]		  = perf_event__read_swap,
 	[PERF_RECORD_SAMPLE]		  = perf_event__all64_swap,
-	[PERF_RECORD_HEADER_ATTR]	  = perf_event__hdr_attr_swap,
+	[PERF_RECORD_HEADER_ATTR]	  = perf_event__attr_swap,
 	[PERF_RECORD_HEADER_EVENT_TYPE]	  = perf_event__event_type_swap,
 	[PERF_RECORD_HEADER_TRACING_DATA] = perf_event__tracing_data_swap,
 	[PERF_RECORD_HEADER_BUILD_ID]	  = NULL,
@@ -720,9 +708,9 @@ static void dump_sample(struct perf_session *session, union perf_event *event,
 	if (!dump_trace)
 		return;
 
-	printf("(IP, %d): %d/%d: %#" PRIx64 " period: %" PRIu64 " addr: %#" PRIx64 "\n",
+	printf("(IP, %d): %d/%d: %#" PRIx64 " period: %" PRIu64 "\n",
 	       event->header.misc, sample->pid, sample->tid, sample->ip,
-	       sample->period, sample->addr);
+	       sample->period);
 
 	if (session->sample_type & PERF_SAMPLE_CALLCHAIN)
 		callchain__printf(sample);
@@ -1214,10 +1202,9 @@ struct perf_evsel *perf_session__find_first_evtype(struct perf_session *session,
 	return NULL;
 }
 
-void perf_session__print_ip(union perf_event *event,
-			    struct perf_sample *sample,
-			    struct perf_session *session,
-			    int print_sym, int print_dso)
+void perf_session__print_symbols(union perf_event *event,
+				struct perf_sample *sample,
+				struct perf_session *session)
 {
 	struct addr_location al;
 	const char *symname, *dsoname;
@@ -1246,83 +1233,32 @@ void perf_session__print_ip(union perf_event *event,
 			if (!node)
 				break;
 
-			printf("\t%16" PRIx64, node->ip);
-			if (print_sym) {
-				if (node->sym && node->sym->name)
-					symname = node->sym->name;
-				else
-					symname = "";
+			if (node->sym && node->sym->name)
+				symname = node->sym->name;
+			else
+				symname = "";
 
-				printf(" %s", symname);
-			}
-			if (print_dso) {
-				if (node->map && node->map->dso && node->map->dso->name)
-					dsoname = node->map->dso->name;
-				else
-					dsoname = "";
+			if (node->map && node->map->dso && node->map->dso->name)
+				dsoname = node->map->dso->name;
+			else
+				dsoname = "";
 
-				printf(" (%s)", dsoname);
-			}
-			printf("\n");
+			printf("\t%16" PRIx64 " %s (%s)\n", node->ip, symname, dsoname);
 
 			callchain_cursor_advance(cursor);
 		}
 
 	} else {
-		printf("%16" PRIx64, sample->ip);
-		if (print_sym) {
-			if (al.sym && al.sym->name)
-				symname = al.sym->name;
-			else
-				symname = "";
+		if (al.sym && al.sym->name)
+			symname = al.sym->name;
+		else
+			symname = "";
 
-			printf(" %s", symname);
-		}
+		if (al.map && al.map->dso && al.map->dso->name)
+			dsoname = al.map->dso->name;
+		else
+			dsoname = "";
 
-		if (print_dso) {
-			if (al.map && al.map->dso && al.map->dso->name)
-				dsoname = al.map->dso->name;
-			else
-				dsoname = "";
-
-			printf(" (%s)", dsoname);
-		}
+		printf("%16" PRIx64 " %s (%s)", al.addr, symname, dsoname);
 	}
-}
-
-int perf_session__cpu_bitmap(struct perf_session *session,
-			     const char *cpu_list, unsigned long *cpu_bitmap)
-{
-	int i;
-	struct cpu_map *map;
-
-	for (i = 0; i < PERF_TYPE_MAX; ++i) {
-		struct perf_evsel *evsel;
-
-		evsel = perf_session__find_first_evtype(session, i);
-		if (!evsel)
-			continue;
-
-		if (!(evsel->attr.sample_type & PERF_SAMPLE_CPU)) {
-			pr_err("File does not contain CPU events. "
-			       "Remove -c option to proceed.\n");
-			return -1;
-		}
-	}
-
-	map = cpu_map__new(cpu_list);
-
-	for (i = 0; i < map->nr; i++) {
-		int cpu = map->map[i];
-
-		if (cpu >= MAX_NR_CPUS) {
-			pr_err("Requested CPU %d too large. "
-			       "Consider raising MAX_NR_CPUS\n", cpu);
-			return -1;
-		}
-
-		set_bit(cpu, cpu_bitmap);
-	}
-
-	return 0;
 }
