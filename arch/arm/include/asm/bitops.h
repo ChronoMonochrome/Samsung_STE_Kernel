@@ -310,7 +310,10 @@ static inline int find_next_bit_le(const void *p, int size, int offset)
 /*
  * Ext2 is defined to use little-endian byte ordering.
  */
-#include <asm-generic/bitops/ext2-atomic-setbit.h>
+#define ext2_set_bit_atomic(lock, nr, p)	\
+		test_and_set_bit_le(nr, p)
+#define ext2_clear_bit_atomic(lock, nr, p)	\
+		test_and_clear_bit_le(nr, p)
 
 #endif /* __KERNEL__ */
 

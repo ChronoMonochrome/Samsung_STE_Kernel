@@ -327,7 +327,10 @@ unsigned long find_next_bit_le(const void *addr,
 				    unsigned long size, unsigned long offset);
 /* Bitmap functions for the ext2 filesystem */
 
-#include <asm-generic/bitops/ext2-atomic-setbit.h>
+#define ext2_set_bit_atomic(lock, nr, addr) \
+	test_and_set_bit_le((nr), (unsigned long*)addr)
+#define ext2_clear_bit_atomic(lock, nr, addr) \
+	test_and_clear_bit_le((nr), (unsigned long*)addr)
 
 #include <asm-generic/bitops/sched.h>
 
