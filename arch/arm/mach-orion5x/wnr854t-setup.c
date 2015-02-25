@@ -133,8 +133,7 @@ static void __init wnr854t_init(void)
 	platform_device_register(&wnr854t_nor_flash);
 }
 
-static int __init wnr854t_pci_map_irq(const struct pci_dev *dev, u8 slot,
-	u8 pin)
+static int __init wnr854t_pci_map_irq(struct pci_dev *dev, u8 slot, u8 pin)
 {
 	int irq;
 
