@@ -1114,7 +1114,9 @@ send_again:
 /*wait 1s until sd card perfectly removed*/
 		mdelay(10);
 		goto send_again;
+#ifdef CONFIG_MMC_PARANOID_SD_INIT
 		retries = 5;
+#endif
 	}
 #endif
 

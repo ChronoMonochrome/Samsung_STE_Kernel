@@ -8,7 +8,7 @@
  *  Host driver specific definitions.
  */
 
-#if defined(CONFIG_MACH_JANICE) || defined(CONFIG_MACH_SEC_KYLE) || defined(CONFIG_MACH_CODINA)|| defined(CONFIG_MACH_GAVINI)
+#if defined(CONFIG_MACH_JANICE) || defined(CONFIG_MACH_SEC_KYLE) || defined(CONFIG_MACH_CODINA)
 #define _MMC_SAFE_ACCESS_
 #endif
 
@@ -483,4 +483,3 @@ static inline unsigned int mmc_host_clk_rate(struct mmc_host *host)
 #endif
 
 #endif
-

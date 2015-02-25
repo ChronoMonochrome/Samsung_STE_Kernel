@@ -47,7 +47,7 @@ mmc_is_available = 0;
 EXPORT_SYMBOL(mmc_is_available);
 #endif
 
-#if defined(CONFIG_MACH_SEC_GOLDEN) || defined(CONFIG_MACH_SEC_SKOMER) || defined(CONFIG_MACH_SEC_HENDRIX)
+#if defined(CONFIG_MACH_SEC_GOLDEN) || defined(CONFIG_MACH_SEC_SKOMER)
 #define SD_HW_NODETECTION
 #endif
 
@@ -139,39 +139,6 @@ static struct variant_data variant_ux500v2 = {
 	.signal_direction	= true,
 };
 
-int nmk_gpio_get_mode(int gpio);
-void dump_gpio_pins(struct mmc_host *mmc)
-{
-	char *str;
-	int i, ret;
-
-	if (!strcmp(mmc_hostname(mmc), "mmc1")) {
-		int pins[] = {18, 19, 20, 22, 23, 24, 25, 26, 27, 28, 5, 169, 87, 0};
-
-		pr_info("%s: GPIO pin configs:\n", mmc_hostname(mmc));
-
-		for (i = 0; pins[i]; i++) {
-			ret = nmk_gpio_get_mode(pins[i]);
-
-			if (ret == 0)
-				str = "GPIO";
-			else if (ret == 1)
-				str = "ALT_A";
-			else if (ret == 2)
-				str = "ALT_B";
-			else if (ret == 3)
-				str = "ALT_C";
-			else
-				str = "?";
-
-			pr_info("    %d = %s (%d)\n", pins[i], str, ret);
-			if (ret == 0)
-				pr_info("        pin %d value = %d\n",
-					pins[i], gpio_get_value(pins[i]));
-		}
-	}
-}
-
 static void dump_mmci_regs(struct mmc_host *mmc)
 {
 	u32 pwr, clk, arg, cmd, rspcmd, r0, r1, r2, r3;
@@ -222,19 +189,6 @@ static void dump_mmci_regs(struct mmc_host *mmc)
 	dev_info(mmc_dev(mmc), "%-20s:0x%08x\n", "mmci_imask0", mask0);
 	dev_info(mmc_dev(mmc), "%-20s:0x%08x\n", "mmci_imask1", mask1);
 	dev_info(mmc_dev(mmc), "%-20s:0x%08x\n", "mmci_fifocnt", fifocnt);
-
-	/*summary register*/
-	dev_info(mmc_dev(mmc), "CMD: %d, ARG: 0x%08x", sta & 0x3F, arg);
-	dev_info(mmc_dev(mmc), "Error Type1 (timeout) : %s", 
-			sta & 0x4 ? "CMD Timeout" : \
-			(sta & 0x8 ? "Data Timeout" : "No Timeout error"));
-	dev_info(mmc_dev(mmc), "Error Type2 (CRC) : %s", 
-			sta & 0x0 ? "CMD CRC" : (sta & 0x2 ? "Data CRC" : "No CRC error"));
-	dev_info(mmc_dev(mmc), "Error Type3 (Start bit) : %s", 
-			sta & 0x200 ? "Start bit error" : "No Startbit error");
-	dev_info(mmc_dev(mmc), "Busy check : %s\n", sta & 0x2000000 ? "Data busy" : "No busy");
-	dev_info(mmc_dev(mmc), "Pending check : %s\n", sta & 0x800 ? "CMD Pending" : \
-			(sta & 0x3000 ? "Data Pending" : "No Pending"));
 }
 
 /*
@@ -409,7 +363,7 @@ static void mmci_init_sg(struct mmci_host *host, struct mmc_data *data)
  * no custom DMA interfaces are supported.
  */
 #ifdef CONFIG_DMA_ENGINE
-static void mmci_dma_setup(struct mmci_host *host)
+static void __devinit mmci_dma_setup(struct mmci_host *host)
 {
 	struct mmci_platform_data *plat = host->plat;
 	const char *rxname, *txname;
@@ -499,30 +453,6 @@ static inline void mmci_dma_release(struct mmci_host *host)
 	host->dma_rx_channel = host->dma_tx_channel = NULL;
 }
 
-/*
- * Used to temporarily disable/enable DMA
- */
-static void mmci_dma_disable(struct mmci_host *host)
-{
-	if (!host->dma_was_disabled) {
-		mmci_dma_release(host);
-		host->dma_current = NULL;
-		host->dma_desc_current = NULL;
-		host->next_data.dma_desc = NULL;
-		host->next_data.dma_chan = NULL;
-		host->dma_was_disabled = 1;
-	}
-}
-
-static void mmci_dma_enable(struct mmci_host *host)
-{
-	if (host->dma_was_disabled) {
-		host->dma_was_disabled = 0;
-		mmci_dma_setup(host);
-	}
-}
-
-
 static void mmci_dma_data_error(struct mmci_host *host, struct mmc_data *data)
 {
 	dev_err(mmc_dev(host->mmc), "error during DMA transfer!\n");
@@ -545,8 +475,7 @@ static void mmci_dma_unmap(struct mmci_host *host, struct mmc_data *data)
 		chan = host->dma_tx_channel;
 	}
 
-	if (chan)
-		dma_unmap_sg(chan->device->dev, data->sg, data->sg_len, dir);
+	dma_unmap_sg(chan->device->dev, data->sg, data->sg_len, dir);
 }
 
 static void mmci_dma_finalize(struct mmci_host *host, struct mmc_data *data)
@@ -760,9 +689,7 @@ static void mmci_post_request(struct mmc_host *mmc, struct mmc_request *mrq,
 			chan = host->dma_rx_channel;
 		else
 			chan = host->dma_tx_channel;
-
-		if (chan)
-			dmaengine_terminate_all(chan);
+		dmaengine_terminate_all(chan);
 
 		next->dma_desc = NULL;
 		next->dma_chan = NULL;
@@ -779,14 +706,6 @@ static inline void mmci_dma_setup(struct mmci_host *host)
 }
 
 static inline void mmci_dma_release(struct mmci_host *host)
-{
-}
-
-static inline void mmci_dma_enable(struct mmci_host *host)
-{
-}
-
-static inline void mmci_dma_disable(struct mmci_host *host)
 {
 }
 
@@ -1373,7 +1292,6 @@ static void mmci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 	spin_unlock_irqrestore(&host->lock, flags);
 }
 
-void dump_mmc_ios(struct mmc_host *host);
 static void mmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 {
 	struct mmci_host *host = mmc_priv(mmc);
@@ -1425,7 +1343,7 @@ static void mmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 		break;
 	case MMC_POWER_ON:
 		pwr |= MCI_PWR_ON;
-            mdelay(10);
+
 		if (host->plat->ios_handler &&
 			host->plat->ios_handler(mmc_dev(mmc), ios, RPM_ACTIVE))
 				dev_err(mmc_dev(mmc), "platform ios_handler failed\n");
@@ -1449,18 +1367,7 @@ static void mmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 				~MCI_ST_DATA2DIREN);
 	}
 
-	/*
-	 * ER 474514: Remove open drain on SD card. We assume that
-	 * SD card controllers have the levelshifter attribute set.
-	 * This is to avoid false response when there is no sd card
-	 * present.
-	 */
-#if defined(CONFIG_MACH_SEC_SKOMER)
-	if (!host->plat->levelshifter
-	    && ios->bus_mode == MMC_BUSMODE_OPENDRAIN) {
-#else
 	if (ios->bus_mode == MMC_BUSMODE_OPENDRAIN) {
-#endif
 		if (host->hw_designer != AMBA_VENDOR_ST)
 			pwr |= MCI_ROD;
 		else {
@@ -1617,8 +1524,9 @@ static void mmci_abort_request(struct mmc_host *mmc)
 	}
 
 	/* Disable DMA, use PIO */
-	mmci_dma_disable(host);
+	mmci_dma_release(host);
 	dev_warn(mmc_dev(mmc), "Disabling DMA for this host\n");
+	host->dma_was_disabled = 1;
 
 	spin_unlock_irqrestore(&host->lock, flags);
 
@@ -2084,8 +1992,10 @@ static int mmci_restore(struct amba_device *dev)
 		writel(host->pwr_reg, host->base + MMCIPOWER);
 		writel(MCI_IRQENABLE, host->base + MMCIMASK0);
 
-		/* Re-enable DMA if it was disabled by the reset function */
-		mmci_dma_enable(host);
+		if (host->dma_was_disabled) {
+			mmci_dma_setup(host);
+			host->dma_was_disabled = 0;
+		}
 
 		spin_unlock_irqrestore(&host->lock, flags);
 

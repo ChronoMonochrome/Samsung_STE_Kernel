@@ -25,6 +25,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/fault-inject.h>
 #include <linux/random.h>
+#include <linux/suspend.h>
 
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
@@ -122,7 +123,7 @@ static inline void mmc_should_fail_request(struct mmc_host *host,
 
 #endif /* CONFIG_FAIL_MMC_REQUEST */
 
-void dump_mmc_ios(struct mmc_host *host)
+static void dump_mmc_ios(struct mmc_host *host)
 {
 	static const char const *vdd_str[] = {
 		[8]	= "2.0",
@@ -1796,15 +1797,6 @@ int mmc_erase(struct mmc_card *card, unsigned int from, unsigned int nr,
 	/* 'from' and 'to' are inclusive */
 	to -= 1;
 
- 	/* to set the address in 16k (32sectors) */
-	if(arg == MMC_TRIM_ARG) {
-		if ((from % 32) != 0)
-			from = ((from >> 5) + 1) << 5;
-
-		to = (to >> 5) << 5;
-		if (from >= to)
-			return 0;
-	}
 	return mmc_do_erase(card, from, to, arg);
 }
 EXPORT_SYMBOL(mmc_erase);
