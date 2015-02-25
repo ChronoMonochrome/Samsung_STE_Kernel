@@ -1132,7 +1132,7 @@ static void sdma_add_scripts(struct sdma_engine *sdma,
 }
 
 static int __init sdma_get_firmware(struct sdma_engine *sdma,
-		const char *fw_name)
+		const char *cpu_name, int to_version)
 {
 	const struct firmware *fw;
 	const struct sdma_firmware_header *header;
@@ -1140,8 +1140,18 @@ static int __init sdma_get_firmware(struct sdma_engine *sdma,
 	const struct sdma_script_start_addrs *addr;
 	unsigned short *ram_code;
 
+<<<<<<< HEAD
 	ret = request_firmware(&fw, fw_name, sdma->dev);
 	if (ret)
+=======
+	fwname = kasprintf(GFP_KERNEL, "sdma-%s-to%d.bin", cpu_name, to_version);
+	if (!fwname)
+		return -ENOMEM;
+
+	ret = request_firmware(&fw, fwname, sdma->dev);
+	if (ret) {
+		kfree(fwname);
+>>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 		return ret;
 
 	if (fw->size < sizeof(*header))
@@ -1345,6 +1355,7 @@ static int __init sdma_probe(struct platform_device *pdev)
 	if (pdata && pdata->script_addrs)
 		sdma_add_scripts(sdma, pdata->script_addrs);
 
+<<<<<<< HEAD
 	if (pdata) {
 		sdma_get_firmware(sdma, pdata->fw_name);
 	} else {
@@ -1366,6 +1377,9 @@ static int __init sdma_probe(struct platform_device *pdev)
 			goto err_init;
 		}
 	}
+=======
+	sdma_get_firmware(sdma, pdata->cpu_name, pdata->to_version);
+>>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 
 	sdma->dma_device.dev = &pdev->dev;
 

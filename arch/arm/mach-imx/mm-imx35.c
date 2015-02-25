@@ -25,7 +25,6 @@
 #include <asm/hardware/cache-l2x0.h>
 
 #include <mach/common.h>
-#include <mach/devices-common.h>
 #include <mach/hardware.h>
 #include <mach/iomux-v3.h>
 #include <mach/irqs.h>
@@ -55,6 +54,7 @@ void __init mx35_init_irq(void)
 	mxc_init_irq(MX35_IO_ADDRESS(MX35_AVIC_BASE_ADDR));
 }
 
+<<<<<<< HEAD
 static struct sdma_script_start_addrs imx35_to1_sdma_script __initdata = {
 	.ap_2_ap_addr = 642,
 	.uart_2_mcu_addr = 817,
@@ -90,14 +90,15 @@ static struct sdma_platform_data imx35_sdma_pdata __initdata = {
 	.script_addrs = &imx35_to2_sdma_script,
 };
 
+=======
+>>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 void __init imx35_soc_init(void)
 {
-	int to_version = mx35_revision() >> 4;
-
 	/* i.mx35 has the i.mx31 type gpio */
 	mxc_register_gpio("imx31-gpio", 0, MX35_GPIO1_BASE_ADDR, SZ_16K, MX35_INT_GPIO1, 0);
 	mxc_register_gpio("imx31-gpio", 1, MX35_GPIO2_BASE_ADDR, SZ_16K, MX35_INT_GPIO2, 0);
 	mxc_register_gpio("imx31-gpio", 2, MX35_GPIO3_BASE_ADDR, SZ_16K, MX35_INT_GPIO3, 0);
+<<<<<<< HEAD
 
 	if (to_version == 1) {
 		strncpy(imx35_sdma_pdata.fw_name, "sdma-imx35-to1.bin",
@@ -106,4 +107,6 @@ void __init imx35_soc_init(void)
 	}
 
 	imx_add_imx_sdma("imx35-sdma", MX35_SDMA_BASE_ADDR, MX35_INT_SDMA, &imx35_sdma_pdata);
+=======
+>>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 }

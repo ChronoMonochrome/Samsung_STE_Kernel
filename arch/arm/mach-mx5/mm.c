@@ -18,7 +18,6 @@
 
 #include <mach/hardware.h>
 #include <mach/common.h>
-#include <mach/devices-common.h>
 #include <mach/iomux-v3.h>
 
 /*
@@ -101,6 +100,7 @@ void __init mx53_init_irq(void)
 	tzic_init_irq(tzic_virt);
 }
 
+<<<<<<< HEAD
 static struct sdma_script_start_addrs imx51_sdma_script __initdata = {
 	.ap_2_ap_addr = 642,
 	.uart_2_mcu_addr = 817,
@@ -138,6 +138,8 @@ static struct sdma_platform_data imx53_sdma_pdata __initdata = {
 	.script_addrs = &imx53_sdma_script,
 };
 
+=======
+>>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 void __init imx51_soc_init(void)
 {
 	/* i.mx51 has the i.mx31 type gpio */
@@ -145,9 +147,12 @@ void __init imx51_soc_init(void)
 	mxc_register_gpio("imx31-gpio", 1, MX51_GPIO2_BASE_ADDR, SZ_16K, MX51_MXC_INT_GPIO2_LOW, MX51_MXC_INT_GPIO2_HIGH);
 	mxc_register_gpio("imx31-gpio", 2, MX51_GPIO3_BASE_ADDR, SZ_16K, MX51_MXC_INT_GPIO3_LOW, MX51_MXC_INT_GPIO3_HIGH);
 	mxc_register_gpio("imx31-gpio", 3, MX51_GPIO4_BASE_ADDR, SZ_16K, MX51_MXC_INT_GPIO4_LOW, MX51_MXC_INT_GPIO4_HIGH);
+<<<<<<< HEAD
 
 	/* i.mx51 has the i.mx35 type sdma */
 	imx_add_imx_sdma("imx35-sdma", MX51_SDMA_BASE_ADDR, MX51_INT_SDMA, &imx51_sdma_pdata);
+=======
+>>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 }
 
 void __init imx53_soc_init(void)
@@ -160,7 +165,10 @@ void __init imx53_soc_init(void)
 	mxc_register_gpio("imx31-gpio", 4, MX53_GPIO5_BASE_ADDR, SZ_16K, MX53_INT_GPIO5_LOW, MX53_INT_GPIO5_HIGH);
 	mxc_register_gpio("imx31-gpio", 5, MX53_GPIO6_BASE_ADDR, SZ_16K, MX53_INT_GPIO6_LOW, MX53_INT_GPIO6_HIGH);
 	mxc_register_gpio("imx31-gpio", 6, MX53_GPIO7_BASE_ADDR, SZ_16K, MX53_INT_GPIO7_LOW, MX53_INT_GPIO7_HIGH);
+<<<<<<< HEAD
 
 	/* i.mx53 has the i.mx35 type sdma */
 	imx_add_imx_sdma("imx35-sdma", MX53_SDMA_BASE_ADDR, MX53_INT_SDMA, &imx53_sdma_pdata);
+=======
+>>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 }

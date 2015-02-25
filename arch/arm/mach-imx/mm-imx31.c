@@ -24,7 +24,6 @@
 #include <asm/mach/map.h>
 
 #include <mach/common.h>
-#include <mach/devices-common.h>
 #include <mach/hardware.h>
 #include <mach/iomux-v3.h>
 #include <mach/irqs.h>
@@ -58,6 +57,7 @@ void __init mx31_init_irq(void)
 	mxc_init_irq(MX31_IO_ADDRESS(MX31_AVIC_BASE_ADDR));
 }
 
+<<<<<<< HEAD
 static struct sdma_script_start_addrs imx31_to1_sdma_script __initdata = {
 	.per_2_per_addr = 1677,
 };
@@ -73,13 +73,14 @@ static struct sdma_platform_data imx31_sdma_pdata __initdata = {
 	.script_addrs = &imx31_to2_sdma_script,
 };
 
+=======
+>>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 void __init imx31_soc_init(void)
 {
-	int to_version = mx31_revision() >> 4;
-
 	mxc_register_gpio("imx31-gpio", 0, MX31_GPIO1_BASE_ADDR, SZ_16K, MX31_INT_GPIO1, 0);
 	mxc_register_gpio("imx31-gpio", 1, MX31_GPIO2_BASE_ADDR, SZ_16K, MX31_INT_GPIO2, 0);
 	mxc_register_gpio("imx31-gpio", 2, MX31_GPIO3_BASE_ADDR, SZ_16K, MX31_INT_GPIO3, 0);
+<<<<<<< HEAD
 
 	if (to_version == 1) {
 		strncpy(imx31_sdma_pdata.fw_name, "sdma-imx31-to1.bin",
@@ -88,4 +89,6 @@ void __init imx31_soc_init(void)
 	}
 
 	imx_add_imx_sdma("imx31-sdma", MX31_SDMA_BASE_ADDR, MX31_INT_SDMA, &imx31_sdma_pdata);
+=======
+>>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 }

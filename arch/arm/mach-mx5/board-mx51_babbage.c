@@ -41,8 +41,11 @@
 #define BABBAGE_POWER_KEY	IMX_GPIO_NR(2, 21)
 #define BABBAGE_ECSPI1_CS0	IMX_GPIO_NR(4, 24)
 #define BABBAGE_ECSPI1_CS1	IMX_GPIO_NR(4, 25)
+<<<<<<< HEAD
 #define BABBAGE_SD2_CD		IMX_GPIO_NR(1, 6)
 #define BABBAGE_SD2_WP		IMX_GPIO_NR(1, 5)
+=======
+>>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 
 /* USB_CTRL_1 */
 #define MX51_USB_CTRL_1_OFFSET			0x10
@@ -144,9 +147,12 @@ static iomux_v3_cfg_t mx51babbage_pads[] = {
 	MX51_PAD_SD1_DATA1__SD1_DATA1,
 	MX51_PAD_SD1_DATA2__SD1_DATA2,
 	MX51_PAD_SD1_DATA3__SD1_DATA3,
+<<<<<<< HEAD
 	/* CD/WP from controller */
 	MX51_PAD_GPIO1_0__SD1_CD,
 	MX51_PAD_GPIO1_1__SD1_WP,
+=======
+>>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 
 	/* SD 2 */
 	MX51_PAD_SD2_CMD__SD2_CMD,
@@ -155,9 +161,12 @@ static iomux_v3_cfg_t mx51babbage_pads[] = {
 	MX51_PAD_SD2_DATA1__SD2_DATA1,
 	MX51_PAD_SD2_DATA2__SD2_DATA2,
 	MX51_PAD_SD2_DATA3__SD2_DATA3,
+<<<<<<< HEAD
 	/* CD/WP gpio */
 	MX51_PAD_GPIO1_6__GPIO1_6,
 	MX51_PAD_GPIO1_5__GPIO1_5,
+=======
+>>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 
 	/* eCSPI1 */
 	MX51_PAD_CSPI1_MISO__ECSPI1_MISO,
@@ -339,6 +348,7 @@ static const struct spi_imx_master mx51_babbage_spi_pdata __initconst = {
 	.num_chipselect = ARRAY_SIZE(mx51_babbage_spi_cs),
 };
 
+<<<<<<< HEAD
 static const struct esdhc_platform_data mx51_babbage_sd1_data __initconst = {
 	.cd_type = ESDHC_CD_CONTROLLER,
 	.wp_type = ESDHC_WP_CONTROLLER,
@@ -351,6 +361,8 @@ static const struct esdhc_platform_data mx51_babbage_sd2_data __initconst = {
 	.wp_type = ESDHC_WP_GPIO,
 };
 
+=======
+>>>>>>> parent of 69f1d1a... Merge branch 'next/devel' of ssh://master.kernel.org/pub/scm/linux/kernel/git/arm/linux-arm-soc
 /*
  * Board specific initialization.
  */
@@ -396,8 +408,8 @@ static void __init mx51_babbage_init(void)
 	mxc_iomux_v3_setup_pad(usbh1stp);
 	babbage_usbhub_reset();
 
-	imx51_add_sdhci_esdhc_imx(0, &mx51_babbage_sd1_data);
-	imx51_add_sdhci_esdhc_imx(1, &mx51_babbage_sd2_data);
+	imx51_add_sdhci_esdhc_imx(0, NULL);
+	imx51_add_sdhci_esdhc_imx(1, NULL);
 
 	spi_register_board_info(mx51_babbage_spi_board_info,
 		ARRAY_SIZE(mx51_babbage_spi_board_info));

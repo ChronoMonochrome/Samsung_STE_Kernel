@@ -22,7 +22,6 @@
 #include <linux/init.h>
 #include <mach/hardware.h>
 #include <mach/common.h>
-#include <mach/devices-common.h>
 #include <asm/pgtable.h>
 #include <asm/mach/map.h>
 #include <mach/irqs.h>
@@ -84,6 +83,4 @@ void __init imx27_soc_init(void)
 	mxc_register_gpio("imx21-gpio", 3, MX27_GPIO4_BASE_ADDR, SZ_256, MX27_INT_GPIO, 0);
 	mxc_register_gpio("imx21-gpio", 4, MX27_GPIO5_BASE_ADDR, SZ_256, MX27_INT_GPIO, 0);
 	mxc_register_gpio("imx21-gpio", 5, MX27_GPIO6_BASE_ADDR, SZ_256, MX27_INT_GPIO, 0);
-
-	imx_add_imx_dma();
 }
