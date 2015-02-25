@@ -257,9 +257,11 @@ struct d40_base;
  * @tasklet: Tasklet that gets scheduled from interrupt context to complete a
  * transfer and call client callback.
  * @client: Cliented owned descriptor list.
+ * @pending_queue: Submitted jobs, to be issued by issue_pending()
  * @active: Active descriptor.
  * @done: Completed jobs
  * @queue: Queued jobs.
+ * @prepare_queue: Prepared jobs.
  * @dma_cfg: The client configuration of this dma channel.
  * @configured: whether the dma_cfg configuration is valid
  * @base: Pointer to the device instance struct.
@@ -269,8 +271,11 @@ struct d40_base;
  * @lcpa: Pointer to dst and src lcpa settings.
  * @runtime_addr: runtime configured address.
  * @runtime_direction: runtime configured direction.
+<<<<<<< HEAD
+=======
  * @src_dev_addr: device source address for the channel transfer.
  * @dst_dev_addr: device destination address for the channel transfer.
+>>>>>>> 4738dce... drivers/dma
  *
  * This struct can either "be" a logical or a physical channel.
  */
@@ -289,6 +294,7 @@ struct d40_chan {
 	struct list_head		 active;
 	struct list_head		 done;
 	struct list_head		 queue;
+	struct list_head		 prepare_queue;
 	struct stedma40_chan_cfg	 dma_cfg;
 	bool				 configured;
 	struct d40_base			*base;
@@ -582,7 +588,6 @@ static struct d40_desc *d40_desc_get(struct d40_chan *d40c)
 
 		list_for_each_entry_safe(d, _d, &d40c->client, node) {
 			if (async_tx_test_ack(&d->txd)) {
-				d40_pool_lli_free(d40c, d);
 				d40_desc_remove(d);
 				desc = d;
 				memset(desc, 0, sizeof(*desc));
@@ -760,8 +765,14 @@ static struct d40_desc *d40_first_active_get(struct d40_chan *d40c)
 	return d;
 }
 
+/* remove desc from current queue and add it to the pending_queue */
 static void d40_desc_queue(struct d40_chan *d40c, struct d40_desc *desc)
 {
+<<<<<<< HEAD
+=======
+	d40_desc_remove(desc);
+	desc->is_in_client_list = false;
+>>>>>>> 4738dce... drivers/dma
 	list_add_tail(&desc->node, &d40c->pending_queue);
 }
 
@@ -936,6 +947,7 @@ done:
 static void d40_term_all(struct d40_chan *d40c)
 {
 	struct d40_desc *d40d;
+	struct d40_desc *_d;
 
 	/* Release completed descriptors */
 	while ((d40d = d40_first_done(d40c))) {
@@ -960,6 +972,24 @@ static void d40_term_all(struct d40_chan *d40c)
 		d40_desc_remove(d40d);
 		d40_desc_free(d40c, d40d);
 	}
+<<<<<<< HEAD
+=======
+
+	/* Release client owned descriptors */
+	if (!list_empty(&d40c->client))
+		list_for_each_entry_safe(d40d, _d, &d40c->client, node) {
+			d40_desc_remove(d40d);
+			d40_desc_free(d40c, d40d);
+		}
+
+	/* Release descriptors in prepare queue */
+	if (!list_empty(&d40c->prepare_queue))
+		list_for_each_entry_safe(d40d, _d,
+					 &d40c->prepare_queue, node) {
+			d40_desc_remove(d40d);
+			d40_desc_free(d40c, d40d);
+		}
+>>>>>>> 4738dce... drivers/dma
 
 	d40c->pending_tx = 0;
 }
@@ -1425,7 +1455,6 @@ static void dma_tasklet(unsigned long data)
 
 	if (!d40d->cyclic) {
 		if (async_tx_test_ack(&d40d->txd)) {
-			d40_pool_lli_free(d40c, d40d);
 			d40_desc_remove(d40d);
 			d40_desc_free(d40c, d40d);
 		} else if (!d40d->is_in_client_list) {
@@ -1838,20 +1867,9 @@ static int d40_free_dma(struct d40_chan *d40c)
 	u32 event;
 	struct d40_phy_res *phy = d40c->phy_chan;
 	bool is_src;
-	struct d40_desc *d;
-	struct d40_desc *_d;
-
 
 	/* Terminate all queued and active transfers */
 	d40_term_all(d40c);
-
-	/* Release client owned descriptors */
-	if (!list_empty(&d40c->client))
-		list_for_each_entry_safe(d, _d, &d40c->client, node) {
-			d40_pool_lli_free(d40c, d);
-			d40_desc_remove(d);
-			d40_desc_free(d40c, d);
-		}
 
 	if (phy == NULL) {
 		chan_err(d40c, "phy == null\n");
@@ -2267,6 +2285,12 @@ d40_prep_sg(struct dma_chan *dchan, struct scatterlist *sg_src,
 		goto err;
 	}
 
+	/*
+	 * add descriptor to the prepare queue in order to be able
+	 * to free them later in terminate_all
+	 */
+	list_add_tail(&desc->node, &chan->prepare_queue);
+
 	spin_unlock_irqrestore(&chan->lock, flags);
 
 	return &desc->txd;
@@ -2493,7 +2517,11 @@ dma40_prep_dma_cyclic(struct dma_chan *chan, dma_addr_t dma_addr,
 	struct scatterlist *sg;
 	int i;
 
+<<<<<<< HEAD
+	sg = kcalloc(periods + 1, sizeof(struct scatterlist), GFP_NOWAIT);
+=======
 	sg = kcalloc(periods + 1, sizeof(struct scatterlist), GFP_ATOMIC);
+>>>>>>> 4738dce... drivers/dma
 	for (i = 0; i < periods; i++) {
 		sg_dma_address(&sg[i]) = dma_addr;
 		sg_dma_len(&sg[i]) = period_len;
@@ -2569,6 +2597,8 @@ static void d40_issue_pending(struct dma_chan *chan)
 	spin_unlock_irqrestore(&d40c->lock, flags);
 }
 
+<<<<<<< HEAD
+=======
 static void d40_terminate_all(struct dma_chan *chan)
 {
 	unsigned long flags;
@@ -2595,6 +2625,7 @@ static void d40_terminate_all(struct dma_chan *chan)
 	spin_unlock_irqrestore(&d40c->lock, flags);
 }
 
+>>>>>>> 4738dce... drivers/dma
 static int
 dma40_config_to_halfchannel(struct d40_chan *d40c,
 			    struct stedma40_half_channel_info *info,
@@ -2713,7 +2744,10 @@ static int d40_set_runtime_config(struct dma_chan *chan,
 			src_addr_width = dst_addr_width;
 		if (src_maxburst == 0)
 			src_maxburst = dst_maxburst;
+<<<<<<< HEAD
+=======
 
+>>>>>>> 4738dce... drivers/dma
 	} else {
 		dev_err(d40c->base->dev,
 			"unrecognized channel direction %d\n",
@@ -2731,6 +2765,14 @@ static int d40_set_runtime_config(struct dma_chan *chan,
 		return -EINVAL;
 	}
 
+<<<<<<< HEAD
+	ret = dma40_config_to_halfchannel(d40c, &cfg->src_info,
+					  src_addr_width,
+					  src_maxburst);
+	if (ret)
+		return ret;
+
+=======
 	if (src_maxburst > 16) {
 		src_maxburst = 16;
 		dst_maxburst = src_maxburst * src_addr_width / dst_addr_width;
@@ -2745,6 +2787,7 @@ static int d40_set_runtime_config(struct dma_chan *chan,
 	if (ret)
 		return ret;
 
+>>>>>>> 4738dce... drivers/dma
 	ret = dma40_config_to_halfchannel(d40c, &cfg->dst_info,
 					  dst_addr_width,
 					  dst_maxburst);
@@ -2876,6 +2919,7 @@ static void __init d40_chan_init(struct d40_base *base, struct dma_device *dma,
 		INIT_LIST_HEAD(&d40c->queue);
 		INIT_LIST_HEAD(&d40c->pending_queue);
 		INIT_LIST_HEAD(&d40c->client);
+		INIT_LIST_HEAD(&d40c->prepare_queue);
 
 		tasklet_init(&d40c->tasklet, dma_tasklet,
 			     (unsigned long) d40c);
