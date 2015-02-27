@@ -95,7 +95,7 @@ static const char	hcd_name [] = "ehci_hcd";
 #define EHCI_IO_JIFFIES		(HZ/10)		/* io watchdog > irq_thresh */
 #define EHCI_ASYNC_JIFFIES	(HZ/20)		/* async idle timeout */
 #define EHCI_SHRINK_JIFFIES	(DIV_ROUND_UP(HZ, 200) + 1)
-						/* 5-ms async qh unlink delay */
+						/* 200-ms async qh unlink delay */
 
 /* Initial IRQ latency:  faster than hw default */
 static int log2_irq_thresh = 0;		// 0 to 6
@@ -203,7 +203,10 @@ static int tdi_in_host_mode (struct ehci_hcd *ehci)
 	u32 __iomem	*reg_ptr;
 	u32		tmp;
 
-	reg_ptr = (u32 __iomem *)(((u8 __iomem *)ehci->regs) + USBMODE);
+	if (ehci->has_hostpc)
+		reg_ptr = (u32 __iomem *)(((u8 __iomem *)ehci->regs) + USBMODE_EX);
+	else
+		reg_ptr = (u32 __iomem *)(((u8 __iomem *)ehci->regs) + USBMODE);
 	tmp = ehci_readl(ehci, reg_ptr);
 	return (tmp & 3) == USBMODE_CM_HC;
 }
@@ -238,7 +241,7 @@ static int handshake_on_error_set_halt(struct ehci_hcd *ehci, void __iomem *ptr,
 	error = handshake(ehci, ptr, mask, done, usec);
 	if (error) {
 		ehci_halt(ehci);
-		ehci->rh_state = EHCI_RH_HALTED;
+		ehci_to_hcd(ehci)->state = HC_STATE_HALT;
 		ehci_err(ehci, "force halt; handshake %p %08x %08x -> %d\n",
 			ptr, mask, done, error);
 	}
@@ -277,8 +280,11 @@ static int ehci_reset (struct ehci_hcd *ehci)
 
 	command |= CMD_RESET;
 	dbg_cmd (ehci, "reset", command);
-	ehci_writel(ehci, command, &ehci->regs->command);
-	ehci->rh_state = EHCI_RH_HALTED;
+#ifdef CONFIG_USB_EHCI_TEGRA
+	if (!ehci->controller_resets_phy)
+#endif
+		ehci_writel(ehci, command, &ehci->regs->command);
+	ehci_to_hcd(ehci)->state = HC_STATE_HALT;
 	ehci->next_statechange = jiffies;
 	retval = handshake (ehci, &ehci->regs->command,
 			    CMD_RESET, 0, 250 * 1000);
@@ -307,7 +313,7 @@ static void ehci_quiesce (struct ehci_hcd *ehci)
 	u32	temp;
 
 #ifdef DEBUG
-	if (ehci->rh_state != EHCI_RH_RUNNING)
+	if (!HC_IS_RUNNING (ehci_to_hcd(ehci)->state))
 		BUG ();
 #endif
 
@@ -356,7 +362,7 @@ static void ehci_iaa_watchdog(unsigned long param)
 	 */
 	if (ehci->reclaim
 			&& !timer_pending(&ehci->iaa_watchdog)
-			&& ehci->rh_state == EHCI_RH_RUNNING) {
+			&& HC_IS_RUNNING(ehci_to_hcd(ehci)->state)) {
 		u32 cmd, status;
 
 		/* If we get here, IAA is *REALLY* late.  It's barely
@@ -496,7 +502,7 @@ static void ehci_work (struct ehci_hcd *ehci)
 	 * misplace IRQs, and should let us run completely without IRQs.
 	 * such lossage has been observed on both VT6202 and VT8235.
 	 */
-	if (ehci->rh_state == EHCI_RH_RUNNING &&
+	if (HC_IS_RUNNING (ehci_to_hcd(ehci)->state) &&
 			(ehci->async->qh_next.ptr != NULL ||
 			 ehci->periodic_sched != 0))
 		timer_action (ehci, TIMER_IO_WATCHDOG);
@@ -516,7 +522,7 @@ static void ehci_stop (struct usb_hcd *hcd)
 	del_timer_sync(&ehci->iaa_watchdog);
 
 	spin_lock_irq(&ehci->lock);
-	if (ehci->rh_state == EHCI_RH_RUNNING)
+	if (HC_IS_RUNNING (hcd->state))
 		ehci_quiesce (ehci);
 
 	ehci_silence_controller(ehci);
@@ -741,7 +747,7 @@ static int ehci_run (struct usb_hcd *hcd)
 	 * be started before the port switching actions could complete.
 	 */
 	down_write(&ehci_cf_port_reset_rwsem);
-	ehci->rh_state = EHCI_RH_RUNNING;
+	hcd->state = HC_STATE_RUNNING;
 	ehci_writel(ehci, FLAG_CF, &ehci->regs->configured_flag);
 	ehci_readl(ehci, &ehci->regs->command);	/* unblock posted writes */
 	msleep(5);
@@ -817,7 +823,7 @@ static irqreturn_t ehci_irq (struct usb_hcd *hcd)
 
 	/* Shared IRQ? */
 	masked_status = status & INTR_MASK;
-	if (!masked_status || unlikely(ehci->rh_state == EHCI_RH_HALTED)) {
+	if (!masked_status || unlikely(hcd->state == HC_STATE_HALT)) {
 		spin_unlock(&ehci->lock);
 		return IRQ_NONE;
 	}
@@ -900,6 +906,9 @@ static irqreturn_t ehci_irq (struct usb_hcd *hcd)
 			ehci->reset_done[i] = jiffies + msecs_to_jiffies(25);
 			ehci_dbg (ehci, "port %d remote wakeup\n", i + 1);
 			mod_timer(&hcd->rh_timer, ehci->reset_done[i]);
+#ifdef CONFIG_USB_EHCI_TEGRA
+			ehci->controller_remote_wakeup = true;
+#endif
 		}
 	}
 
@@ -981,7 +990,7 @@ static int ehci_urb_enqueue (
 static void unlink_async (struct ehci_hcd *ehci, struct ehci_qh *qh)
 {
 	/* failfast */
-	if (ehci->rh_state != EHCI_RH_RUNNING && ehci->reclaim)
+	if (!HC_IS_RUNNING(ehci_to_hcd(ehci)->state) && ehci->reclaim)
 		end_unlink_async(ehci);
 
 	/* If the QH isn't linked then there's nothing we can do
@@ -1108,7 +1117,7 @@ rescan:
 		goto idle_timeout;
 	}
 
-	if (ehci->rh_state != EHCI_RH_RUNNING)
+	if (!HC_IS_RUNNING (hcd->state))
 		qh->qh_state = QH_STATE_IDLE;
 	switch (qh->qh_state) {
 	case QH_STATE_LINKED:
@@ -1224,7 +1233,7 @@ MODULE_LICENSE ("GPL");
 #define PLATFORM_DRIVER		ehci_hcd_sh_driver
 #endif
 
-#ifdef CONFIG_MIPS_ALCHEMY
+#ifdef CONFIG_SOC_AU1200
 #include "ehci-au1xxx.c"
 #define	PLATFORM_DRIVER		ehci_hcd_au1xxx_driver
 #endif
@@ -1317,16 +1326,6 @@ MODULE_LICENSE ("GPL");
 #ifdef CONFIG_SPARC_LEON
 #include "ehci-grlib.c"
 #define PLATFORM_DRIVER		ehci_grlib_driver
-#endif
-
-#ifdef CONFIG_USB_PXA168_EHCI
-#include "ehci-pxa168.c"
-#define PLATFORM_DRIVER		ehci_pxa168_driver
-#endif
-
-#ifdef CONFIG_NLM_XLR
-#include "ehci-xls.c"
-#define PLATFORM_DRIVER		ehci_xls_driver
 #endif
 
 #if !defined(PCI_DRIVER) && !defined(PLATFORM_DRIVER) && \

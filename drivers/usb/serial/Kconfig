@@ -252,7 +252,6 @@ config USB_SERIAL_GARMIN
 
 config USB_SERIAL_IPW
         tristate "USB IPWireless (3G UMTS TDD) Driver"
-	select USB_SERIAL_WWAN
 	help
 	  Say Y here if you want to use a IPWireless USB modem such as
 	  the ones supplied by Axity3G/Sentech South Africa.
@@ -459,6 +458,24 @@ config USB_SERIAL_MOTOROLA
 	  To compile this driver as a module, choose M here: the
 	  module will be called moto_modem.  If unsure, choose N.
 
+config USB_SERIAL_MDM6600
+        tristate "USB MDM6600 modem"
+        ---help---
+          Say Y here if you want to use a Qualcomm MDM6600 modem over
+	  USB as your modem.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called mdm6600.  If unsure, choose N.
+
+config USB_SERIAL_MOTO_FLASH_MODEM
+	tristate "USB Motorola modem flash driver"
+	---help---
+	  Say Y here if you want to use a Motorola CDMA modem in flash mode
+	  with a USB connector as a modem link.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called moto_flashqsc.  If unsure, choose N.
+
 config USB_SERIAL_NAVMAN
 	tristate "USB Navman GPS device"
 	help
@@ -661,5 +678,18 @@ config USB_SERIAL_DEBUG
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called usb-debug.
+
+config USB_SERIAL_BASEBAND
+	tristate "USB Baseband Driver"
+	help
+	  Say Y here if you want to use USB baseband character driver.
+
+	  This driver may be used as a raw character device driver for
+	  USB modems.  For example, downloading modem firmware upon
+	  modem boot up (for flashless modems), or sending modem
+	  AT commands after modem software is running on device.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called baseband_chr.
 
 endif # USB_SERIAL

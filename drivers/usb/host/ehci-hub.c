@@ -27,7 +27,6 @@
  */
 
 /*-------------------------------------------------------------------------*/
-#include <linux/usb/otg.h>
 
 #define	PORT_WAKE_BITS	(PORT_WKOC_E|PORT_WKDISC_E|PORT_WKCONN_E)
 
@@ -146,7 +145,7 @@ static __maybe_unused void ehci_adjust_port_wakeup_flags(struct ehci_hcd *ehci,
 	spin_lock_irqsave(&ehci->lock, flags);
 
 	/* clear phy low-power mode before changing wakeup flags */
-	if (ehci->has_hostpc) {
+	if (ehci->has_hostpc && !ehci->broken_hostpc_phcd) {
 		port = HCS_N_PORTS(ehci->hcs_params);
 		while (port--) {
 			u32 __iomem	*hostpc_reg;
@@ -182,7 +181,7 @@ static __maybe_unused void ehci_adjust_port_wakeup_flags(struct ehci_hcd *ehci,
 	}
 
 	/* enter phy low-power mode again */
-	if (ehci->has_hostpc) {
+	if (ehci->has_hostpc && !ehci->broken_hostpc_phcd) {
 		port = HCS_N_PORTS(ehci->hcs_params);
 		while (port--) {
 			u32 __iomem	*hostpc_reg;
@@ -236,8 +235,10 @@ static int ehci_bus_suspend (struct usb_hcd *hcd)
 	}
 
 	/* stop schedules, clean any completed work */
-	if (ehci->rh_state == EHCI_RH_RUNNING)
+	if (HC_IS_RUNNING(hcd->state)) {
 		ehci_quiesce (ehci);
+		hcd->state = HC_STATE_QUIESCING;
+	}
 	ehci->command = ehci_readl(ehci, &ehci->regs->command);
 	ehci_work(ehci);
 
@@ -283,8 +284,8 @@ static int ehci_bus_suspend (struct usb_hcd *hcd)
 			changed = 1;
 		}
 	}
-
-	if (changed && ehci->has_hostpc) {
+#ifdef CONFIG_ARCH_TEGRA_2x_SOC
+	if (changed && ehci->has_hostpc && !ehci->broken_hostpc_phcd) {
 		spin_unlock_irq(&ehci->lock);
 		msleep(5);	/* 5 ms for HCD to enter low-power mode */
 		spin_lock_irq(&ehci->lock);
@@ -304,14 +305,14 @@ static int ehci_bus_suspend (struct usb_hcd *hcd)
 					"succeeded" : "failed");
 		}
 	}
-
+#endif
 	/* Apparently some devices need a >= 1-uframe delay here */
 	if (ehci->bus_suspended)
 		udelay(150);
 
 	/* turn off now-idle HC */
 	ehci_halt (ehci);
-	ehci->rh_state = EHCI_RH_SUSPENDED;
+	hcd->state = HC_STATE_SUSPENDED;
 
 	if (ehci->reclaim)
 		end_unlink_async(ehci);
@@ -380,7 +381,6 @@ static int ehci_bus_resume (struct usb_hcd *hcd)
 
 	/* restore CMD_RUN, framelist size, and irq threshold */
 	ehci_writel(ehci, ehci->command, &ehci->regs->command);
-	ehci->rh_state = EHCI_RH_RUNNING;
 
 	/* Some controller/firmware combinations need a delay during which
 	 * they set up the port statuses.  See Bugzilla #8190. */
@@ -389,7 +389,7 @@ static int ehci_bus_resume (struct usb_hcd *hcd)
 	spin_lock_irq(&ehci->lock);
 
 	/* clear phy low-power mode before resume */
-	if (ehci->bus_suspended && ehci->has_hostpc) {
+	if (ehci->bus_suspended && ehci->has_hostpc && !ehci->broken_hostpc_phcd) {
 		i = HCS_N_PORTS(ehci->hcs_params);
 		while (i--) {
 			if (test_bit(i, &ehci->bus_suspended)) {
@@ -450,6 +450,7 @@ static int ehci_bus_resume (struct usb_hcd *hcd)
 	}
 
 	ehci->next_statechange = jiffies + msecs_to_jiffies(5);
+	hcd->state = HC_STATE_RUNNING;
 
 	/* Now we can safely re-enable irqs */
 	ehci_writel(ehci, INTR_MASK, &ehci->regs->intr_enable);
@@ -561,7 +562,7 @@ ehci_hub_status_data (struct usb_hcd *hcd, char *buf)
 	u32		ppcd = 0;
 
 	/* if !USB_SUSPEND, root hub timers won't get shut down ... */
-	if (ehci->rh_state != EHCI_RH_RUNNING)
+	if (!HC_IS_RUNNING(hcd->state))
 		return 0;
 
 	/* init status to no-changes */
@@ -724,20 +725,13 @@ static int ehci_hub_control (
 				goto error;
 			if (ehci->no_selective_suspend)
 				break;
-#ifdef CONFIG_USB_OTG
-			if ((hcd->self.otg_port == (wIndex + 1))
-			    && hcd->self.b_hnp_enable) {
-				otg_start_hnp(ehci->transceiver);
-				break;
-			}
-#endif
 			if (!(temp & PORT_SUSPEND))
 				break;
 			if ((temp & PORT_PE) == 0)
 				goto error;
 
 			/* clear phy low-power mode before resume */
-			if (hostpc_reg) {
+			if (hostpc_reg && !ehci->broken_hostpc_phcd) {
 				temp1 = ehci_readl(ehci, hostpc_reg);
 				ehci_writel(ehci, temp1 & ~HOSTPC_PHCD,
 						hostpc_reg);
@@ -985,7 +979,7 @@ static int ehci_hub_control (
 			temp &= ~PORT_WKCONN_E;
 			temp |= PORT_WKDISC_E | PORT_WKOC_E;
 			ehci_writel(ehci, temp | PORT_SUSPEND, status_reg);
-			if (hostpc_reg) {
+			if (hostpc_reg && !ehci->broken_hostpc_phcd) {
 				spin_unlock_irqrestore(&ehci->lock, flags);
 				msleep(5);/* 5ms for HCD enter low pwr mode */
 				spin_lock_irqsave(&ehci->lock, flags);

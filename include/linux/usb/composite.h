@@ -2,6 +2,8 @@
  * composite.h -- framework for usb gadgets which are composite devices
  *
  * Copyright (C) 2006-2008 David Brownell
+ * Copyright 2013: Olympus Kernel Project
+ * <http://forum.xda-developers.com/showthread.php?t=2016837>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -242,6 +244,9 @@ int usb_add_config(struct usb_composite_dev *,
 		struct usb_configuration *,
 		int (*)(struct usb_configuration *));
 
+int usb_remove_config(struct usb_composite_dev *,
+		struct usb_configuration *);
+
 /**
  * struct usb_composite_driver - groups configurations into a gadget
  * @name: For diagnostics, identifies the driver.
@@ -368,6 +373,27 @@ extern int usb_string_id(struct usb_composite_dev *c);
 extern int usb_string_ids_tab(struct usb_composite_dev *c,
 			      struct usb_string *str);
 extern int usb_string_ids_n(struct usb_composite_dev *c, unsigned n);
+
+struct device_pid {
+	char *name;
+	int pid;
+};
+
+#define MAX_DEVICE_TYPE_NUM   30
+#define MAX_DEVICE_NAME_SIZE  45
+#define MAX_USB_SERIAL_NUM    17
+
+struct android_usb_platform_data {
+	char *vendor;
+	char *product_name;
+	struct device_pid *android_pid;
+	char device_serial[MAX_USB_SERIAL_NUM];
+	/* number of LUNS */
+	int nluns;
+	int cdrom_lun_num;
+};
+
+extern void android_usb_set_connected(int on, unsigned int accy);
 
 
 /* messaging utils */

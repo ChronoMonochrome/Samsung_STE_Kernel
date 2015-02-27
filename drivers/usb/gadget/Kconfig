@@ -96,22 +96,6 @@ config USB_GADGET_VBUS_DRAW
 	   This value will be used except for system-specific gadget
 	   drivers that have more specific information.
 
-config USB_GADGET_STORAGE_NUM_BUFFERS
-	int "Number of storage pipeline buffers"
-	range 2 4
-	default 2
-	help
-	   Usually 2 buffers are enough to establish a good buffering
-	   pipeline. The number may be increased in order to compensate
-	   for a bursty VFS behaviour. For instance there may be CPU wake up
-	   latencies that makes the VFS to appear bursty in a system with
-	   an CPU on-demand governor. Especially if DMA is doing IO to
-	   offload the CPU. In this case the CPU will go into power
-	   save often and spin up occasionally to move data within VFS.
-	   If selecting USB_GADGET_DEBUG_FILES this value may be set by
-	   a module parameter as well.
-	   If unsure, say 2.
-
 #
 # USB Peripheral Controller Support
 #
@@ -157,9 +141,9 @@ config USB_ATMEL_USBA
 
 config USB_FSL_USB2
 	tristate "Freescale Highspeed USB DR Peripheral Controller"
-	depends on FSL_SOC || ARCH_MXC
+	depends on FSL_SOC || ARCH_MXC || ARCH_TEGRA
 	select USB_GADGET_DUALSPEED
-	select USB_FSL_MPH_DR_OF if OF
+	select USB_FSL_MPH_DR_OF if OF && FSL_SOC
 	help
 	   Some of Freescale PowerPC processors have a High Speed
 	   Dual-Role(DR) USB controller, which supports device mode.
@@ -192,6 +176,17 @@ config USB_OMAP
 
 	   Say "y" to link the driver statically, or "m" to build a
 	   dynamically linked module called "omap_udc" and force all
+	   gadget drivers to also be dynamically linked.
+
+config USB_TEGRA
+	tristate "Nvidia Highspeed USB 2.0 device controller"
+	depends on ARCH_TEGRA
+	select USB_GADGET_DUALSPEED
+	help
+	   Enables TEGRA USB 2.0 pheripheral driver.
+
+	   Say "y" to link the driver statically, or "m" to build a
+	   dynamically linked module called "tegra_udc" and force all
 	   gadget drivers to also be dynamically linked.
 
 config USB_PXA25X
@@ -271,11 +266,12 @@ config USB_S3C_HSOTG
 	  integrated into the S3C64XX series SoC.
 
 config USB_IMX
-	tristate "Freescale i.MX1 USB Peripheral Controller"
-	depends on ARCH_MXC
+	tristate "Freescale IMX USB Peripheral Controller"
+	depends on ARCH_MX1
 	help
-	   Freescale's i.MX1 includes an integrated full speed
-	   USB 1.1 device controller.
+	   Freescale's IMX series include an integrated full speed
+	   USB 1.1 device controller.  The controller in the IMX series
+	   is register-compatible.
 
 	   It has Six fixed-function endpoints, as well as endpoint
 	   zero (for control transfers).
@@ -317,18 +313,6 @@ config USB_PXA_U2O
 	help
 	  PXA9xx Processor series include a high speed USB2.0 device
 	  controller, which support high speed and full speed USB peripheral.
-
-config USB_GADGET_DWC3
-	tristate "DesignWare USB3.0 (DRD) Controller"
-	depends on USB_DWC3
-	select USB_GADGET_DUALSPEED
-	select USB_GADGET_SUPERSPEED
-	help
-	  DesignWare USB3.0 controller is a SuperSpeed USB3.0 Controller
-	  which can be configured for peripheral-only, host-only, hub-only
-	  and Dual-Role operation. This Controller was first integrated into
-	  the OMAP5 series of processors. More information about the OMAP5
-	  version of this controller, refer to http://www.ti.com/omap5.
 
 #
 # Controllers available in both integrated and discrete versions
@@ -850,6 +834,14 @@ config USB_G_PRINTER
 	  For more information, see Documentation/usb/gadget_printer.txt
 	  which includes sample code for accessing the device file.
 
+config USB_G_ANDROID
+	boolean "Android Gadget"
+	depends on SWITCH
+	help
+	  The Android gadget driver supports multiple USB functions.
+	  The functions can be configured via a board file and may be
+	  enabled and disabled dynamically.
+
 config USB_CDC_COMPOSITE
 	tristate "CDC Composite Device (Ethernet and ACM)"
 	depends on NET
@@ -873,16 +865,6 @@ config USB_G_NOKIA
 
 	  It's only really useful for N900 hardware. If you're building
 	  a kernel for N900, say Y or M here. If unsure, say N.
-
-config USB_G_ACM_MS
-	tristate "CDC Composite Device (ACM and mass storage)"
-	depends on BLOCK
-	help
-	  This driver provides two functions in one configuration:
-	  a mass storage, and a CDC ACM (serial port) link.
-
-	  Say "y" to link the driver statically, or "m" to build a
-	  dynamically linked module called "g_acm_ms".
 
 config USB_G_MULTI
 	tristate "Multifunction Composite Gadget (EXPERIMENTAL)"
@@ -980,5 +962,14 @@ config USB_G_WEBCAM
 	  dynamically linked module called "g_webcam".
 
 endchoice
+
+config USB_MOT_ANDROID
+       tristate "MOTO Android Gadget"
+       help
+         The MOTO Android gadget provides mass storage, adb and ethernet
+         transport.
+
+         Say "y" to link the driver statically, or "m" to build a
+         dynamically linked module called "g_mot_android".
 
 endif # USB_GADGET

@@ -31,7 +31,6 @@
 #define gadget_is_ci13xxx_msm(g)	(!strcmp("ci13xxx_msm", (g)->name))
 #define gadget_is_ci13xxx_pci(g)	(!strcmp("ci13xxx_pci", (g)->name))
 #define gadget_is_dummy(g)		(!strcmp("dummy_udc", (g)->name))
-#define gadget_is_dwc3(g)		(!strcmp("dwc3-gadget", (g)->name))
 #define gadget_is_fsl_qe(g)		(!strcmp("fsl_qe_udc", (g)->name))
 #define gadget_is_fsl_usb2(g)		(!strcmp("fsl-usb2-udc", (g)->name))
 #define gadget_is_goku(g)		(!strcmp("goku_udc", (g)->name))
@@ -50,6 +49,7 @@
 #define gadget_is_s3c2410(g)		(!strcmp("s3c2410_udc", (g)->name))
 #define gadget_is_s3c_hsotg(g)		(!strcmp("s3c-hsotg", (g)->name))
 #define gadget_is_s3c_hsudc(g)		(!strcmp("s3c-hsudc", (g)->name))
+#define gadget_is_tegra(g)		(!strcmp("tegra-udc", (g)->name))
 
 /**
  * usb_gadget_controller_number - support bcdDevice id convention
@@ -116,9 +116,8 @@ static inline int usb_gadget_controller_number(struct usb_gadget *gadget)
 		return 0x30;
 	else if (gadget_is_net2272(gadget))
 		return 0x31;
-	else if (gadget_is_dwc3(gadget))
+	else if (gadget_is_tegra(gadget))
 		return 0x32;
-
 	return -ENOENT;
 }
 

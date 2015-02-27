@@ -1,6 +1,8 @@
 #
 # USB peripheral controller drivers
 #
+GCOV_PROFILE_tegra_udc.o := y
+
 ccflags-$(CONFIG_USB_GADGET_DEBUG) := -DDEBUG
 
 obj-$(CONFIG_USB_GADGET)	+= udc-core.o
@@ -19,6 +21,8 @@ obj-$(CONFIG_USB_ATMEL_USBA)	+= atmel_usba_udc.o
 obj-$(CONFIG_USB_FSL_USB2)	+= fsl_usb2_udc.o
 fsl_usb2_udc-y			:= fsl_udc_core.o
 fsl_usb2_udc-$(CONFIG_ARCH_MXC)	+= fsl_mxc_udc.o
+CFLAGS_tegra_udc.o		= -Werror
+obj-$(CONFIG_USB_TEGRA)		+= tegra_udc.o
 obj-$(CONFIG_USB_M66592)	+= m66592-udc.o
 obj-$(CONFIG_USB_R8A66597)	+= r8a66597-udc.o
 obj-$(CONFIG_USB_FSL_QE)	+= fsl_qe_udc.o
@@ -28,7 +32,7 @@ obj-$(CONFIG_USB_S3C_HSUDC)	+= s3c-hsudc.o
 obj-$(CONFIG_USB_LANGWELL)	+= langwell_udc.o
 obj-$(CONFIG_USB_EG20T)		+= pch_udc.o
 obj-$(CONFIG_USB_PXA_U2O)	+= mv_udc.o
-mv_udc-y			:= mv_udc_core.o
+mv_udc-y			:= mv_udc_core.o mv_udc_phy.o
 obj-$(CONFIG_USB_CI13XXX_MSM)	+= ci13xxx_msm.o
 obj-$(CONFIG_USB_FUSB300)	+= fusb300_udc.o
 
@@ -51,7 +55,7 @@ g_dbgp-y			:= dbgp.o
 g_nokia-y			:= nokia.o
 g_webcam-y			:= webcam.o
 g_ncm-y				:= ncm.o
-g_acm_ms-y			:= acm_ms.o
+g_android-y			:= android.o
 
 obj-$(CONFIG_USB_ZERO)		+= g_zero.o
 obj-$(CONFIG_USB_AUDIO)		+= g_audio.o
@@ -70,4 +74,4 @@ obj-$(CONFIG_USB_G_MULTI)	+= g_multi.o
 obj-$(CONFIG_USB_G_NOKIA)	+= g_nokia.o
 obj-$(CONFIG_USB_G_WEBCAM)	+= g_webcam.o
 obj-$(CONFIG_USB_G_NCM)		+= g_ncm.o
-obj-$(CONFIG_USB_G_ACM_MS)	+= g_acm_ms.o
+obj-$(CONFIG_USB_G_ANDROID)	+= g_android.o

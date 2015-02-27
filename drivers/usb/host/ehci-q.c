@@ -1,5 +1,7 @@
 /*
  * Copyright (C) 2001-2004 by David Brownell
+ * Copyright 2013: Olympus Kernel Project
+ * <http://forum.xda-developers.com/showthread.php?t=2016837>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -111,6 +113,8 @@ qh_update (struct ehci_hcd *ehci, struct ehci_qh *qh, struct ehci_qtd *qtd)
 		}
 	}
 
+	/* HC must see latest qtd and qh data before we clear ACTIVE+HALT */
+	wmb ();
 	hw->hw_token &= cpu_to_hc32(ehci, QTD_TOGGLE | QTD_STS_PING);
 }
 
@@ -151,7 +155,7 @@ static void ehci_clear_tt_buffer_complete(struct usb_hcd *hcd,
 	spin_lock_irqsave(&ehci->lock, flags);
 	qh->clearing_tt = 0;
 	if (qh->qh_state == QH_STATE_IDLE && !list_empty(&qh->qtd_list)
-			&& ehci->rh_state == EHCI_RH_RUNNING)
+			&& HC_IS_RUNNING(hcd->state))
 		qh_link_async(ehci, qh);
 	spin_unlock_irqrestore(&ehci->lock, flags);
 }
@@ -332,6 +336,7 @@ qh_completions (struct ehci_hcd *ehci, struct ehci_qh *qh)
 	qh->qh_state = QH_STATE_COMPLETING;
 	stopped = (state == QH_STATE_IDLE);
 
+	ehci_sync_qh(ehci, qh);
  rescan:
 	last = NULL;
 	last_status = -EINPROGRESS;
@@ -365,6 +370,7 @@ qh_completions (struct ehci_hcd *ehci, struct ehci_qh *qh)
 		if (qtd == end)
 			break;
 
+		ehci_sync_qtd(ehci, qtd);
 		/* hardware copies qtd out of qh overlay */
 		rmb ();
 		token = hc32_to_cpu(ehci, qtd->hw_token);
@@ -423,7 +429,7 @@ qh_completions (struct ehci_hcd *ehci, struct ehci_qh *qh)
 
 		/* stop scanning when we reach qtds the hc is using */
 		} else if (likely (!stopped
-				&& ehci->rh_state == EHCI_RH_RUNNING)) {
+				&& HC_IS_RUNNING (ehci_to_hcd(ehci)->state))) {
 			break;
 
 		/* scan the whole queue for unlinks whenever it stops */
@@ -431,7 +437,7 @@ qh_completions (struct ehci_hcd *ehci, struct ehci_qh *qh)
 			stopped = 1;
 
 			/* cancel everything if we halt, suspend, etc */
-			if (ehci->rh_state != EHCI_RH_RUNNING)
+			if (!HC_IS_RUNNING(ehci_to_hcd(ehci)->state))
 				last_status = -ESHUTDOWN;
 
 			/* this qtd is active; skip it unless a previous qtd
@@ -722,8 +728,7 @@ qh_urb_transaction (
 
 	/*
 	 * control requests may need a terminating data "status" ack;
-	 * other OUT ones may need a terminating short packet
-	 * (zero length).
+	 * bulk ones may need a terminating short packet (zero length).
 	 */
 	if (likely (urb->transfer_buffer_length != 0)) {
 		int	one_more = 0;
@@ -732,7 +737,7 @@ qh_urb_transaction (
 			one_more = 1;
 			token ^= 0x0100;	/* "in" <--> "out"  */
 			token |= QTD_TOGGLE;	/* force DATA1 */
-		} else if (usb_pipeout(urb->pipe)
+		} else if (usb_pipebulk (urb->pipe)
 				&& (urb->transfer_flags & URB_ZERO_PACKET)
 				&& !(urb->transfer_buffer_length % maxpacket)) {
 			one_more = 1;
@@ -976,8 +981,9 @@ static void qh_link_async (struct ehci_hcd *ehci, struct ehci_qh *qh)
 			/* in case a clear of CMD_ASE didn't take yet */
 			(void)handshake(ehci, &ehci->regs->status,
 					STS_ASS, 0, 150);
-			cmd |= CMD_ASE;
+			cmd |= CMD_ASE | CMD_RUN;
 			ehci_writel(ehci, cmd, &ehci->regs->command);
+			ehci_to_hcd(ehci)->state = HC_STATE_RUNNING;
 			/* posted write need not be known to HC yet ... */
 		}
 	}
@@ -993,9 +999,16 @@ static void qh_link_async (struct ehci_hcd *ehci, struct ehci_qh *qh)
 	head->qh_next.qh = qh;
 	head->hw->hw_next = dma;
 
+	/*
+	 * flush qh descriptor into memory immediately,
+	 * see comments in qh_append_tds.
+	 * */
+	ehci_sync_mem();
+
 	qh_get(qh);
 	qh->xacterrs = 0;
 	qh->qh_state = QH_STATE_LINKED;
+	wmb();
 	/* qtd completions reported later by interrupt */
 }
 
@@ -1056,7 +1069,7 @@ static struct ehci_qh *qh_append_tds (
 			 */
 			token = qtd->hw_token;
 			qtd->hw_token = HALT_BIT(ehci);
-
+			wmb ();
 			dummy = qh->dummy;
 
 			dma = dummy->qtd_dma;
@@ -1079,6 +1092,18 @@ static struct ehci_qh *qh_append_tds (
 			/* let the hc process these next qtds */
 			wmb ();
 			dummy->hw_token = token;
+
+			/*
+			 * Writing to dma coherent buffer on ARM may
+			 * be delayed to reach memory, so HC may not see
+			 * hw_token of dummy qtd in time, which can cause
+			 * the qtd transaction to be executed very late,
+			 * and degrade performance a lot. ehci_sync_mem
+			 * is added to flush 'token' immediatelly into
+			 * memory, so that ehci can execute the transaction
+			 * ASAP.
+			 * */
+			ehci_sync_mem();
 
 			urb->hcpriv = qh_get (qh);
 		}
@@ -1166,13 +1191,14 @@ static void end_unlink_async (struct ehci_hcd *ehci)
 
 	qh_completions (ehci, qh);
 
-	if (!list_empty(&qh->qtd_list) && ehci->rh_state == EHCI_RH_RUNNING) {
+	if (!list_empty (&qh->qtd_list)
+			&& HC_IS_RUNNING (ehci_to_hcd(ehci)->state))
 		qh_link_async (ehci, qh);
-	} else {
+	else {
 		/* it's not free to turn the async schedule on/off; leave it
 		 * active but idle for a while once it empties.
 		 */
-		if (ehci->rh_state == EHCI_RH_RUNNING
+		if (HC_IS_RUNNING (ehci_to_hcd(ehci)->state)
 				&& ehci->async->qh_next.qh == NULL)
 			timer_action (ehci, TIMER_ASYNC_OFF);
 	}
@@ -1208,7 +1234,7 @@ static void start_unlink_async (struct ehci_hcd *ehci, struct ehci_qh *qh)
 	/* stop async schedule right now? */
 	if (unlikely (qh == ehci->async)) {
 		/* can't get here without STS_ASS set */
-		if (ehci->rh_state != EHCI_RH_HALTED
+		if (ehci_to_hcd(ehci)->state != HC_STATE_HALT
 				&& !ehci->reclaim) {
 			/* ... and CMD_IAAD clear */
 			ehci_writel(ehci, cmd & ~CMD_ASE,
@@ -1234,7 +1260,7 @@ static void start_unlink_async (struct ehci_hcd *ehci, struct ehci_qh *qh)
 	wmb ();
 
 	/* If the controller isn't running, we don't have to wait for it */
-	if (unlikely(ehci->rh_state != EHCI_RH_RUNNING)) {
+	if (unlikely(!HC_IS_RUNNING(ehci_to_hcd(ehci)->state))) {
 		/* if (unlikely (qh->reclaim != 0))
 		 *	this will recurse, probably not much
 		 */
@@ -1257,7 +1283,7 @@ static void scan_async (struct ehci_hcd *ehci)
 	enum ehci_timer_action	action = TIMER_IO_WATCHDOG;
 
 	timer_action_done (ehci, TIMER_ASYNC_SHRINK);
-	stopped = (ehci->rh_state != EHCI_RH_RUNNING);
+	stopped = !HC_IS_RUNNING(ehci_to_hcd(ehci)->state);
 
 	ehci->qh_scan_next = ehci->async->qh_next.qh;
 	while (ehci->qh_scan_next) {
