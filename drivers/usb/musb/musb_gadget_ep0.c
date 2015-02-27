@@ -46,11 +46,6 @@
 /* ep0 is always musb->endpoints[0].ep_in */
 #define	next_ep0_request(musb)	next_in_request(&(musb)->endpoints[0])
 
-/* OTG 2.0 Specification 6.2.3 GetStatus commands */
-#ifdef CONFIG_USB_OTG_20
-#define OTG_STATUS_SELECT 0xF
-#endif
-
 /*
  * locking note:  we use only the controller lock, for simpler correctness.
  * It's always held with IRQs blocked.
@@ -86,35 +81,21 @@ static int service_tx_status_request(
 	int handled = 1;
 	u8 result[2], epnum = 0;
 	const u8 recip = ctrlrequest->bRequestType & USB_RECIP_MASK;
-#ifdef CONFIG_USB_OTG_20
-	unsigned int otg_recip = ctrlrequest->wIndex >> 12;
-#endif
+
 	result[1] = 0;
 
 	switch (recip) {
 	case USB_RECIP_DEVICE:
-#ifdef CONFIG_USB_OTG_20
-		if (!(otg_recip == OTG_STATUS_SELECT)) {
-#endif
-			result[0] = musb->is_self_powered <<
-						USB_DEVICE_SELF_POWERED;
-			result[0] |= musb->may_wakeup <<
-						USB_DEVICE_REMOTE_WAKEUP;
-	#ifdef CONFIG_USB_MUSB_OTG
-			if (musb->g.is_otg) {
-				result[0] |= musb->g.b_hnp_enable
-					<< USB_DEVICE_B_HNP_ENABLE;
-				result[0] |= musb->g.a_alt_hnp_support
-					<< USB_DEVICE_A_ALT_HNP_SUPPORT;
-				result[0] |= musb->g.a_hnp_support
-					<< USB_DEVICE_A_HNP_SUPPORT;
-			}
-#ifdef CONFIG_USB_OTG_20
-			} else {
-				result[0] = 1 & musb->g.otg_hnp_reqd;
+		result[0] = musb->is_self_powered << USB_DEVICE_SELF_POWERED;
+		result[0] |= musb->may_wakeup << USB_DEVICE_REMOTE_WAKEUP;
+		if (musb->g.is_otg) {
+			result[0] |= musb->g.b_hnp_enable
+				<< USB_DEVICE_B_HNP_ENABLE;
+			result[0] |= musb->g.a_alt_hnp_support
+				<< USB_DEVICE_A_ALT_HNP_SUPPORT;
+			result[0] |= musb->g.a_hnp_support
+				<< USB_DEVICE_A_HNP_SUPPORT;
 		}
-#endif
-#endif
 		break;
 
 	case USB_RECIP_INTERFACE:
@@ -346,15 +327,8 @@ __acquires(musb->lock)
 					musb->may_wakeup = 1;
 					break;
 				case USB_DEVICE_TEST_MODE:
-#ifndef CONFIG_USB_OTG_20
-					/*
-					 * OTG 2.0 Compliance
-					 * PET enumerates as a test device
-					 * with full speed for some tests.
-					 */
 					if (musb->g.speed != USB_SPEED_HIGH)
 						goto stall;
-#endif
 					if (ctrlrequest->wIndex & 0xff)
 						goto stall;
 
@@ -383,22 +357,7 @@ __acquires(musb->lock)
 						musb->test_mode_nr =
 							MUSB_TEST_PACKET;
 						break;
-#ifdef CONFIG_USB_OTG_20
-					case 6:
-						if (!musb->g.is_otg)
-							goto stall;
-						musb->g.otg_srp_reqd = 1;
 
-						mod_timer(&musb->otg_timer,
-						jiffies
-						+ msecs_to_jiffies(TTST_SRP));
-						break;
-					case 7:
-						if (!musb->g.is_otg)
-							goto stall;
-						musb->g.otg_hnp_reqd = 1;
-						break;
-#endif
 					case 0xc0:
 						/* TEST_FORCE_HS */
 						pr_debug("TEST_FORCE_HS\n");
@@ -431,7 +390,6 @@ __acquires(musb->lock)
 					if (handled > 0)
 						musb->test_mode = true;
 					break;
-#ifdef CONFIG_USB_MUSB_OTG
 				case USB_DEVICE_B_HNP_ENABLE:
 					if (!musb->g.is_otg)
 						goto stall;
@@ -448,7 +406,6 @@ __acquires(musb->lock)
 						goto stall;
 					musb->g.a_alt_hnp_support = 1;
 					break;
-#endif
 				case USB_DEVICE_DEBUG_MODE:
 					handled = 0;
 					break;
@@ -721,6 +678,14 @@ irqreturn_t musb_g_ep0_irq(struct musb *musb)
 			csr, len,
 			musb_readb(mbase, MUSB_FADDR),
 			decode_ep0stage(musb->ep0_state));
+
+	if (csr & MUSB_CSR0_P_DATAEND) {
+		/*
+		 * If DATAEND is set we should not call the callback,
+		 * hence the status stage is not complete.
+		 */
+		return IRQ_HANDLED;
+	}
 
 	/* I sent a stall.. need to acknowledge it now.. */
 	if (csr & MUSB_CSR0_P_SENTSTALL) {

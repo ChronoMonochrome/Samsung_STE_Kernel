@@ -32,11 +32,6 @@
 #include <linux/pfn.h>
 #include <mach/usb.h>
 #include "musb_core.h"
-#undef DBG
-#undef WARNING
-#undef INFO
-#include <linux/usb/composite.h>
-#define Ux500_USB_DMA_MIN_TRANSFER_SIZE	512
 
 struct ux500_dma_channel {
 	struct dma_channel channel;
@@ -61,13 +56,7 @@ struct ux500_dma_controller {
 	dma_addr_t phy_base;
 };
 
-/**
- * ux500_tx_work() - Invoked by worker thread
- * @data: worker queue data
- *
- * This function is invoked by worker thread when the DMA transfer
- * is completed in the transmit direction.
-*/
+/* Work function invoked from DMA callback to handle tx transfers. */
 static void ux500_tx_work(struct work_struct *data)
 {
 	struct ux500_dma_channel *ux500_channel = container_of(data,
@@ -76,7 +65,8 @@ static void ux500_tx_work(struct work_struct *data)
 	struct musb *musb = hw_ep->musb;
 	unsigned long flags;
 
-	pr_debug("DMA tx transfer done on hw_ep=%d\n", hw_ep->epnum);
+	dev_dbg(musb->controller, "DMA tx transfer done on hw_ep=%d\n",
+		hw_ep->epnum);
 
 	spin_lock_irqsave(&musb->lock, flags);
 	ux500_channel->channel.actual_len = ux500_channel->cur_len;
@@ -86,13 +76,7 @@ static void ux500_tx_work(struct work_struct *data)
 	spin_unlock_irqrestore(&musb->lock, flags);
 }
 
-/**
- * ux500_rx_work() - Invoked by worker thread
- * @data: worker queue data
- *
- * This function is invoked by worker thread when the
- * DMA transfer is completed in the receive direction.
-*/
+/* Work function invoked from DMA callback to handle rx transfers. */
 static void ux500_rx_work(struct work_struct *data)
 {
 	struct ux500_dma_channel *ux500_channel = container_of(data,
@@ -101,7 +85,8 @@ static void ux500_rx_work(struct work_struct *data)
 	struct musb *musb = hw_ep->musb;
 	unsigned long flags;
 
-	pr_debug("DMA rx transfer done on hw_ep=%d\n", hw_ep->epnum);
+	dev_dbg(musb->controller, "DMA rx transfer done on hw_ep=%d\n",
+		hw_ep->epnum);
 
 	spin_lock_irqsave(&musb->lock, flags);
 	ux500_channel->channel.actual_len = ux500_channel->cur_len;
@@ -111,12 +96,6 @@ static void ux500_rx_work(struct work_struct *data)
 	spin_unlock_irqrestore(&musb->lock, flags);
 }
 
-/**
- * ux500_dma_callback() - callback invoked when there is DMA data transfer
- * @private_data:	pointer to DMA channel.
- *
- * This callback is invoked when the DMA tranfer is completed.
-*/
 void ux500_dma_callback(void *private_data)
 {
 	struct dma_channel *channel = (struct dma_channel *)private_data;
@@ -125,18 +104,6 @@ void ux500_dma_callback(void *private_data)
 	schedule_work(&ux500_channel->channel_work);
 }
 
-/**
- * ux500_configure_channel() - configures the source, destination addresses and
- *                       starts the transfer
- * @channel:    pointer to DMA channel
- * @packet_sz:  packet size
- * @mode: Dma mode
- * @dma_addr: DMA source address for transmit direction
- *            or DMA destination address for receive direction
- * @len: length
- * This function configures the source and destination addresses for DMA
- * operation and initiates the DMA transfer
-*/
 static bool ux500_configure_channel(struct dma_channel *channel,
 				u16 packet_sz, u8 mode,
 				dma_addr_t dma_addr, u32 len)
@@ -151,9 +118,11 @@ static bool ux500_configure_channel(struct dma_channel *channel,
 	enum dma_slave_buswidth addr_width;
 	dma_addr_t usb_fifo_addr = (MUSB_FIFO_OFFSET(hw_ep->epnum) +
 					ux500_channel->controller->phy_base);
+	struct musb *musb = ux500_channel->controller->private_data;
 
-	pr_debug("packet_sz=%d, mode=%d, dma_addr=0x%x, len=%d is_tx=%d\n",
-			packet_sz, mode, dma_addr, len, ux500_channel->is_tx);
+	dev_dbg(musb->controller,
+		"packet_sz=%d, mode=%d, dma_addr=0x%x, len=%d is_tx=%d\n",
+		packet_sz, mode, dma_addr, len, ux500_channel->is_tx);
 
 	ux500_channel->cur_len = len;
 
@@ -168,7 +137,6 @@ static bool ux500_configure_channel(struct dma_channel *channel,
 					DMA_SLAVE_BUSWIDTH_4_BYTES;
 
 	slave_conf.direction = direction;
-
 	slave_conf.src_addr = usb_fifo_addr;
 	slave_conf.src_addr_width = addr_width;
 	slave_conf.src_maxburst = 16;
@@ -194,21 +162,13 @@ static bool ux500_configure_channel(struct dma_channel *channel,
 	return true;
 }
 
-/**
- * ux500_dma_controller_allocate() - allocates the DMA channels
- * @c: pointer to DMA controller
- * @hw_ep: pointer to endpoint
- * @is_tx: transmit or receive direction
- *
- * This function allocates the DMA channel and initializes
- * the channel
-*/
 static struct dma_channel *ux500_dma_channel_allocate(struct dma_controller *c,
 				struct musb_hw_ep *hw_ep, u8 is_tx)
 {
 	struct ux500_dma_controller *controller = container_of(c,
 			struct ux500_dma_controller, controller);
 	struct ux500_dma_channel *ux500_channel = NULL;
+	struct musb *musb = controller->private_data;
 	u8 ch_num = hw_ep->epnum - 1;
 	u32 max_ch;
 
@@ -235,23 +195,18 @@ static struct dma_channel *ux500_dma_channel_allocate(struct dma_controller *c,
 	ux500_channel->hw_ep = hw_ep;
 	ux500_channel->is_allocated = 1;
 
-	pr_devel("hw_ep=%d, is_tx=0x%x, channel=%d\n",
+	dev_dbg(musb->controller, "hw_ep=%d, is_tx=0x%x, channel=%d\n",
 		hw_ep->epnum, is_tx, ch_num);
 
 	return &(ux500_channel->channel);
 }
-/**
- * ux500_dma_channel_release() - releases the DMA channel
- * @channel:	channel to be released
- *
- * This function releases the DMA channel
- *
-*/
+
 static void ux500_dma_channel_release(struct dma_channel *channel)
 {
 	struct ux500_dma_channel *ux500_channel = channel->private_data;
+	struct musb *musb = ux500_channel->controller->private_data;
 
-	pr_devel("channel=%d\n", ux500_channel->ch_num);
+	dev_dbg(musb->controller, "channel=%d\n", ux500_channel->ch_num);
 
 	if (ux500_channel->is_allocated) {
 		ux500_channel->is_allocated = 0;
@@ -263,72 +218,26 @@ static void ux500_dma_channel_release(struct dma_channel *channel)
 static int ux500_dma_is_compatible(struct dma_channel *channel,
 		u16 maxpacket, void *buf, u32 length)
 {
-	struct ux500_dma_channel *ux500_channel = channel->private_data;
-	struct musb_hw_ep       *hw_ep = ux500_channel->hw_ep;
-	struct musb *musb = hw_ep->musb;
-	struct usb_descriptor_header **descriptors;
-	struct usb_function		*f;
-	struct usb_gadget		*gadget = &musb->g;
-	struct usb_composite_dev	*cdev = get_gadget_data(gadget);
-
-	if (length < Ux500_USB_DMA_MIN_TRANSFER_SIZE)
-		return 0;
-
-	list_for_each_entry(f, &cdev->config->functions, list) {
-		if (!strcmp(f->name, "cdc_ethernet") ||
-			!strcmp(f->name, "rndis") ||
-			!strcmp(f->name, "mtp") ||
-			!strcmp(f->name, "phonet") ||
-			!strcmp(f->name, "adb") ||
-			!strncmp(f->name, "acm", 3)) {
-			if (gadget->speed == USB_SPEED_HIGH)
-				descriptors = f->hs_descriptors;
-			else
-				descriptors = f->descriptors;
-
-			for (; *descriptors; ++descriptors) {
-				struct usb_endpoint_descriptor *ep;
-
-				if ((*descriptors)->bDescriptorType !=
-					USB_DT_ENDPOINT)
-					continue;
-
-				ep = (struct usb_endpoint_descriptor *)
-					*descriptors;
-				if (ep->bEndpointAddress ==
-					ux500_channel->hw_ep->epnum)
-					return 0;
-			}
-		}
-	}
-
-	return 1;
+	if ((maxpacket & 0x3)		||
+		((int)buf & 0x3)	||
+		(length < 512)		||
+		(length & 0x3))
+		return false;
+	else
+		return true;
 }
 
-/**
- * ux500_dma_channel_program() - Configures the channel and initiates transfer
- * @channel:	pointer to DMA channel
- * @packet_sz:	packet size
- * @mode: mode
- * @dma_addr: physical address of memory
- * @len: length
- *
- * This function configures the channel and initiates the DMA transfer
-*/
 static int ux500_dma_channel_program(struct dma_channel *channel,
 				u16 packet_sz, u8 mode,
 				dma_addr_t dma_addr, u32 len)
 {
 	int ret;
-	struct ux500_dma_channel *ux500_dma_channel = channel->private_data;
 
 	BUG_ON(channel->status == MUSB_DMA_STATUS_UNKNOWN ||
 		channel->status == MUSB_DMA_STATUS_BUSY);
 
-	if (len < Ux500_USB_DMA_MIN_TRANSFER_SIZE)
-		return 0;
-	if (!ux500_dma_channel->is_tx && len < packet_sz)
-		return 0;
+	if (!ux500_dma_is_compatible(channel, packet_sz, (void *)dma_addr, len))
+		return false;
 
 	channel->status = MUSB_DMA_STATUS_BUSY;
 	channel->actual_len = 0;
@@ -339,12 +248,6 @@ static int ux500_dma_channel_program(struct dma_channel *channel,
 	return ret;
 }
 
-/**
- * ux500_dma_channel_abort() - aborts the DMA transfer
- * @channel:	pointer to DMA channel.
- *
- * This function aborts the DMA transfer.
-*/
 static int ux500_dma_channel_abort(struct dma_channel *channel)
 {
 	struct ux500_dma_channel *ux500_channel = channel->private_data;
@@ -353,8 +256,8 @@ static int ux500_dma_channel_abort(struct dma_channel *channel)
 	void __iomem *epio = musb->endpoints[ux500_channel->hw_ep->epnum].regs;
 	u16 csr;
 
-	pr_debug("channel=%d, is_tx=%d\n", ux500_channel->ch_num,
-						ux500_channel->is_tx);
+	dev_dbg(musb->controller, "channel=%d, is_tx=%d\n",
+		ux500_channel->ch_num, ux500_channel->is_tx);
 
 	if (channel->status == MUSB_DMA_STATUS_BUSY) {
 		if (ux500_channel->is_tx) {
@@ -379,12 +282,6 @@ static int ux500_dma_channel_abort(struct dma_channel *channel)
 	return 0;
 }
 
-/**
- * ux500_dma_controller_stop() - releases all the channels and frees the DMA pipes
- * @c: pointer to DMA controller
- *
- * This function frees all of the logical channels and frees the DMA pipes
-*/
 static int ux500_dma_controller_stop(struct dma_controller *c)
 {
 	struct ux500_dma_controller *controller = container_of(c,
@@ -416,15 +313,6 @@ static int ux500_dma_controller_stop(struct dma_controller *c)
 	return 0;
 }
 
-
-/**
- * ux500_dma_controller_start() - creates the logical channels pool and registers callbacks
- * @c:	pointer to DMA Controller
- *
- * This function requests the logical channels from the DMA driver and creates
- * logical channels based on event lines and also registers the callbacks which
- * are invoked after data transfer in the transmit or receive direction.
-*/
 static int ux500_dma_controller_start(struct dma_controller *c)
 {
 	struct ux500_dma_controller *controller = container_of(c,
@@ -501,12 +389,6 @@ static int ux500_dma_controller_start(struct dma_controller *c)
 	return 0;
 }
 
-/**
- * dma_controller_destroy() - deallocates the DMA controller
- * @c:	pointer to dma controller.
- *
- * This function deallocates the DMA controller.
-*/
 void dma_controller_destroy(struct dma_controller *c)
 {
 	struct ux500_dma_controller *controller = container_of(c,
@@ -515,15 +397,6 @@ void dma_controller_destroy(struct dma_controller *c)
 	kfree(controller);
 }
 
-/**
- * dma_controller_create() - creates the dma controller and initializes callbacks
- *
- * @musb:	pointer to mentor core driver data instance|
- * @base:	base address of musb registers.
- *
- * This function creates the DMA controller and initializes the callbacks
- * that are invoked from the Mentor IP core.
-*/
 struct dma_controller *__init
 dma_controller_create(struct musb *musb, void __iomem *base)
 {

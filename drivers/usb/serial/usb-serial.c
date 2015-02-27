@@ -912,7 +912,7 @@ int usb_serial_probe(struct usb_interface *interface,
 			goto probe_error;
 		}
 		buffer_size = max_t(int, serial->type->bulk_in_size,
-				le16_to_cpu(endpoint->wMaxPacketSize));
+				usb_endpoint_maxp(endpoint));
 		port->bulk_in_size = buffer_size;
 		port->bulk_in_endpointAddress = endpoint->bEndpointAddress;
 		port->bulk_in_buffer = kmalloc(buffer_size, GFP_KERNEL);
@@ -942,7 +942,7 @@ int usb_serial_probe(struct usb_interface *interface,
 			goto probe_error;
 		buffer_size = serial->type->bulk_out_size;
 		if (!buffer_size)
-			buffer_size = le16_to_cpu(endpoint->wMaxPacketSize);
+			buffer_size = usb_endpoint_maxp(endpoint);
 		port->bulk_out_size = buffer_size;
 		port->bulk_out_endpointAddress = endpoint->bEndpointAddress;
 		port->bulk_out_buffer = kmalloc(buffer_size, GFP_KERNEL);
@@ -990,7 +990,7 @@ int usb_serial_probe(struct usb_interface *interface,
 						"No free urbs available\n");
 				goto probe_error;
 			}
-			buffer_size = le16_to_cpu(endpoint->wMaxPacketSize);
+			buffer_size = usb_endpoint_maxp(endpoint);
 			port->interrupt_in_endpointAddress =
 						endpoint->bEndpointAddress;
 			port->interrupt_in_buffer = kmalloc(buffer_size,
@@ -1021,7 +1021,7 @@ int usb_serial_probe(struct usb_interface *interface,
 						"No free urbs available\n");
 				goto probe_error;
 			}
-			buffer_size = le16_to_cpu(endpoint->wMaxPacketSize);
+			buffer_size = usb_endpoint_maxp(endpoint);
 			port->interrupt_out_size = buffer_size;
 			port->interrupt_out_endpointAddress =
 						endpoint->bEndpointAddress;
@@ -1059,12 +1059,6 @@ int usb_serial_probe(struct usb_interface *interface,
 		serial->attached = 1;
 	}
 
-	/* Avoid race with tty_open and serial_install by setting the
-	 * disconnected flag and not clearing it until all ports have been
-	 * registered.
-	 */
-	serial->disconnected = 1;
-
 	if (get_free_serial(serial, num_ports, &minor) == NULL) {
 		dev_err(&interface->dev, "No more free serial devices\n");
 		goto probe_error;
@@ -1088,8 +1082,6 @@ int usb_serial_probe(struct usb_interface *interface,
 			port->dev_state = PORT_REGISTERED;
 		}
 	}
-
-	serial->disconnected = 0;
 
 	usb_serial_console_init(debug, minor);
 

@@ -403,21 +403,7 @@ static void txstate(struct musb *musb, struct musb_request *req)
 					csr |= (MUSB_TXCSR_DMAENAB
 							| MUSB_TXCSR_DMAMODE
 							| MUSB_TXCSR_MODE);
-					/*
-					 * Enable Autoset according to table
-					 * below
-					 * ************************************
-					 * bulk_split hb_mult	Autoset_Enable
-					 * ************************************
-					 *	0	0	Yes(Normal)
-					 *	0	>0	No(High BW ISO)
-					 *	1	0	Yes(HS bulk)
-					 *	1	>0	Yes(FS bulk)
-					 */
-					if (!musb_ep->hb_mult ||
-						(musb_ep->hb_mult &&
-						 can_bulk_split(musb,
-						    musb_ep->type)))
+					if (!musb_ep->hb_mult)
 						csr |= MUSB_TXCSR_AUTOSET;
 				}
 				csr &= ~MUSB_TXCSR_P_UNDERRUN;
@@ -590,15 +576,6 @@ void musb_g_tx(struct musb *musb, u8 epnum)
 
 		if (request->actual == request->length) {
 			musb_g_giveback(musb_ep, request, 0);
-			/*
-			 * In the giveback function the MUSB lock is
-			 * released and acquired after sometime. During
-			 * this time period the INDEX register could get
-			 * changed by gadget_queue function. Reselect the
-			 * INDEX to be sure we are reading/modifying the
-			 * right registers
-			 */
-			musb_ep_select(mbase, epnum);
 			req = musb_ep->desc ? next_request(musb_ep) : NULL;
 			if (!req) {
 				dev_dbg(musb->controller, "%s idle now\n",
@@ -709,15 +686,16 @@ static void rxstate(struct musb *musb, struct musb_request *req)
 		len = musb_readw(epio, MUSB_RXCOUNT);
 
 		/*
-		* Enable Mode 1 on RX transfers only when short_not_ok flag
-		* is set. Currently short_not_ok flag is set only from
-		* file_storage and f_mass_storage drivers
-		*/
+		 * Enable Mode 1 on RX transfers only when short_not_ok flag
+		 * is set. Currently short_not_ok flag is set only from
+		 * file_storage and f_mass_storage drivers
+		 */
 
 		if (request->short_not_ok && len == musb_ep->packet_sz)
 			use_mode_1 = 1;
 		else
 			use_mode_1 = 0;
+
 		if (request->actual < request->length) {
 #ifdef CONFIG_USB_INVENTRA_DMA
 			if (is_buffer_mapped(req)) {
@@ -739,7 +717,7 @@ static void rxstate(struct musb *musb, struct musb_request *req)
 	 * most these gadgets, end of is signified either by a short packet,
 	 * or filling the last byte of the buffer.  (Sending extra data in
 	 * that last pckate should trigger an overflow fault.)  But in mode 1,
-	 * we don't get DMA completion interrrupt for short packets.
+	 * we don't get DMA completion interrupt for short packets.
 	 *
 	 * Theoretically, we could enable DMAReq irq (MUSB_RXCSR_DMAMODE = 1),
 	 * to get endpoint interrupt on every DMA req, but that didn't seem
@@ -749,56 +727,54 @@ static void rxstate(struct musb *musb, struct musb_request *req)
 	 * then becomes usable as a runtime "use mode 1" hint...
 	 */
 
-	/* Experimental: Mode1 works with mass storage use cases */
-	if (use_mode_1) {
-		csr |= MUSB_RXCSR_AUTOCLEAR;
+				/* Experimental: Mode1 works with mass storage use cases */
+				if (use_mode_1) {
+					csr |= MUSB_RXCSR_AUTOCLEAR;
+					musb_writew(epio, MUSB_RXCSR, csr);
+					csr |= MUSB_RXCSR_DMAENAB;
+					musb_writew(epio, MUSB_RXCSR, csr);
 
-		musb_writew(epio, MUSB_RXCSR, csr);
-		csr |= MUSB_RXCSR_DMAENAB;
-		musb_writew(epio, MUSB_RXCSR, csr);
+					/*
+					 * this special sequence (enabling and then
+					 * disabling MUSB_RXCSR_DMAMODE) is required
+					 * to get DMAReq to activate
+					 */
+					musb_writew(epio, MUSB_RXCSR,
+						csr | MUSB_RXCSR_DMAMODE);
+					musb_writew(epio, MUSB_RXCSR, csr);
 
-		/*
-		* this special sequence (enabling and then
-		* disabling MUSB_RXCSR_DMAMODE) is required
-		* to get DMAReq to activate
-		*/
+				} else {
+					if (!musb_ep->hb_mult &&
+						musb_ep->hw_ep->rx_double_buffered)
+						csr |= MUSB_RXCSR_AUTOCLEAR;
+					csr |= MUSB_RXCSR_DMAENAB;
+					musb_writew(epio, MUSB_RXCSR, csr);
+				}
 
-		musb_writew(epio, MUSB_RXCSR,
-			csr | MUSB_RXCSR_DMAMODE);
-		musb_writew(epio, MUSB_RXCSR, csr);
-	} else {
-		if (!musb_ep->hb_mult &&
-			musb_ep->hw_ep->rx_double_buffered)
-			csr |= MUSB_RXCSR_AUTOCLEAR;
-			csr |= MUSB_RXCSR_DMAENAB;
-			musb_writew(epio, MUSB_RXCSR, csr);
-	}
+				if (request->actual < request->length) {
+					int transfer_size = 0;
+					if (use_mode_1) {
+						transfer_size = min(request->length - request->actual,
+								channel->max_len);
+						musb_ep->dma->desired_mode = 1;
+					} else {
+						transfer_size = min(request->length - request->actual,
+								(unsigned)len);
+						musb_ep->dma->desired_mode = 0;
+					}
 
-	if (request->actual < request->length) {
-			int transfer_size = 0;
+					use_dma = c->channel_program(
+							channel,
+							musb_ep->packet_sz,
+							channel->desired_mode,
+							request->dma
+							+ request->actual,
+							transfer_size);
+				}
 
-	if (use_mode_1) {
-		transfer_size = min(request->length - request->actual,
-					channel->max_len);
-		musb_ep->dma->desired_mode = 1;
-	} else {
-		transfer_size = min(request->length - request->actual,
-				(unsigned)len);
-		musb_ep->dma->desired_mode = 0;
-	}
-
-		use_dma = c->channel_program(
-				channel,
-				musb_ep->packet_sz,
-				channel->desired_mode,
-				request->dma
-				+ request->actual,
-				transfer_size);
-	}
-
-		if (use_dma)
-			return;
-		}
+				if (use_dma)
+					return;
+			}
 #elif defined(CONFIG_USB_UX500_DMA)
 			if ((is_buffer_mapped(req)) &&
 				(request->actual < request->length)) {
@@ -1009,15 +985,6 @@ void musb_g_rx(struct musb *musb, u8 epnum)
 		}
 #endif
 		musb_g_giveback(musb_ep, request, 0);
-		/*
-		* In the giveback function the MUSB lock is
-		* released and acquired after sometime. During
-		* this time period the INDEX register could get
-		* changed by gadget_queue function. Reselect the
-		* INDEX to be sure we are reading/modifying the
-		* right registers
-		*/
-		musb_ep_select(mbase, epnum);
 
 		req = next_request(musb_ep);
 		if (!req)
@@ -1070,7 +1037,7 @@ static int musb_gadget_enable(struct usb_ep *ep,
 		goto fail;
 
 	/* REVISIT this rules out high bandwidth periodic transfers */
-	tmp = le16_to_cpu(desc->wMaxPacketSize);
+	tmp = usb_endpoint_maxp(desc);
 	if (tmp & ~0x07ff) {
 		int ok;
 
@@ -1114,12 +1081,6 @@ static int musb_gadget_enable(struct usb_ep *ep,
 		/* REVISIT if can_bulk_split(), use by updating "tmp";
 		 * likewise high bandwidth periodic tx
 		 */
-		/* Set the TXMAXP register correctly for Bulk IN
-		 * endpoints in device mode
-		 */
-		if (can_bulk_split(musb, musb_ep->type))
-			musb_ep->hb_mult = (hw_ep->max_packet_sz_tx /
-						musb_ep->packet_sz) - 1;
 		/* Set TXMAXP with the FIFO size of the endpoint
 		 * to disable double buffering mode.
 		 */
@@ -1665,9 +1626,7 @@ static int musb_gadget_wakeup(struct usb_gadget *gadget)
 		}
 
 		spin_unlock_irqrestore(&musb->lock, flags);
-#ifndef CONFIG_USB_OTG_20
 		otg_start_srp(musb->xceiv);
-#endif
 		spin_lock_irqsave(&musb->lock, flags);
 
 		/* Block idling for at least 1s */
@@ -1721,8 +1680,8 @@ static void musb_pullup(struct musb *musb, int is_on)
 
 	/* FIXME if on, HdrcStart; if off, HdrcStop */
 
-	dev_dbg(musb->controller, "gadget %s D+ pullup %s\n",
-		musb->gadget_driver->function, is_on ? "on" : "off");
+	dev_dbg(musb->controller, "gadget D+ pullup %s\n",
+		is_on ? "on" : "off");
 	musb_writeb(musb->mregs, MUSB_POWER, power);
 }
 
@@ -1773,13 +1732,10 @@ static int musb_gadget_pullup(struct usb_gadget *gadget, int is_on)
 	return 0;
 }
 
-static struct usb_ep *musb_gadget_configure_ep(struct usb_gadget *gadget,
-		u8 type, struct usb_endpoint_descriptor *desc)
-{
-	struct musb	*musb = gadget_to_musb(gadget);
-
-	return musb_platform_configure_ep(musb, type, desc);
-}
+static int musb_gadget_start(struct usb_gadget *g,
+		struct usb_gadget_driver *driver);
+static int musb_gadget_stop(struct usb_gadget *g,
+		struct usb_gadget_driver *driver);
 
 static const struct usb_gadget_ops musb_gadget_operations = {
 	.get_frame		= musb_gadget_get_frame,
@@ -1788,7 +1744,8 @@ static const struct usb_gadget_ops musb_gadget_operations = {
 	/* .vbus_session		= musb_gadget_vbus_session, */
 	.vbus_draw		= musb_gadget_vbus_draw,
 	.pullup			= musb_gadget_pullup,
-	.configure_ep		= musb_gadget_configure_ep,
+	.udc_start		= musb_gadget_start,
+	.udc_stop		= musb_gadget_stop,
 };
 
 /* ----------------------------------------------------------------------- */
@@ -1799,7 +1756,6 @@ static const struct usb_gadget_ops musb_gadget_operations = {
  * about there being only one external upstream port.  It assumes
  * all peripheral ports are external...
  */
-static struct musb *the_gadget;
 
 static void musb_gadget_release(struct device *dev)
 {
@@ -1886,9 +1842,6 @@ int __init musb_gadget_setup(struct musb *musb)
 	 * musb peripherals at the same time, only the bus lock
 	 * is probably held.
 	 */
-	if (the_gadget)
-		return -EBUSY;
-	the_gadget = musb;
 
 	musb->g.ops = &musb_gadget_operations;
 	musb->g.is_dualspeed = 1;
@@ -1912,18 +1865,24 @@ int __init musb_gadget_setup(struct musb *musb)
 	status = device_register(&musb->g.dev);
 	if (status != 0) {
 		put_device(&musb->g.dev);
-		the_gadget = NULL;
+		return status;
 	}
+	status = usb_add_gadget_udc(musb->controller, &musb->g);
+	if (status)
+		goto err;
+
+	return 0;
+err:
+	musb->g.dev.parent = NULL;
+	device_unregister(&musb->g.dev);
 	return status;
 }
 
 void musb_gadget_cleanup(struct musb *musb)
 {
-	if (musb != the_gadget)
-		return;
-
-	device_unregister(&musb->g.dev);
-	the_gadget = NULL;
+	usb_del_gadget_udc(&musb->g);
+	if (musb->g.dev.parent)
+		device_unregister(&musb->g.dev);
 }
 
 /*
@@ -1935,59 +1894,30 @@ void musb_gadget_cleanup(struct musb *musb)
  * -ENOMEM no memory to perform the operation
  *
  * @param driver the gadget driver
- * @param bind the driver's bind function
  * @return <0 if error, 0 if everything is fine
  */
-int usb_gadget_probe_driver(struct usb_gadget_driver *driver,
-		int (*bind)(struct usb_gadget *))
+static int musb_gadget_start(struct usb_gadget *g,
+		struct usb_gadget_driver *driver)
 {
-	struct musb		*musb = the_gadget;
+	struct musb		*musb = gadget_to_musb(g);
 	unsigned long		flags;
 	int			retval = -EINVAL;
 
-	if (!driver
-			|| driver->speed != USB_SPEED_HIGH
-			|| !bind || !driver->setup)
+	if (driver->speed != USB_SPEED_HIGH)
 		goto err0;
-
-	/* driver must be initialized to support peripheral mode */
-	if (!musb) {
-		dev_dbg(musb->controller, "no dev??\n");
-		retval = -ENODEV;
-		goto err0;
-	}
 
 	pm_runtime_get_sync(musb->controller);
 
 	dev_dbg(musb->controller, "registering driver %s\n", driver->function);
 
-	if (musb->gadget_driver) {
-		dev_dbg(musb->controller, "%s is already bound to %s\n",
-				musb_driver_name,
-				musb->gadget_driver->driver.name);
-		retval = -EBUSY;
-		goto err0;
-	}
-
-	spin_lock_irqsave(&musb->lock, flags);
+	musb->softconnect = 0;
 	musb->gadget_driver = driver;
-	musb->g.dev.driver = &driver->driver;
-	driver->driver.bus = NULL;
-	musb->softconnect = 1;
-	spin_unlock_irqrestore(&musb->lock, flags);
-
-	retval = bind(&musb->g);
-	if (retval) {
-		dev_dbg(musb->controller, "bind to driver %s failed --> %d\n",
-				driver->driver.name, retval);
-		goto err1;
-	}
 
 	spin_lock_irqsave(&musb->lock, flags);
+	musb->is_active = 1;
 
 	otg_set_peripheral(musb->xceiv, &musb->g);
 	musb->xceiv->state = OTG_STATE_B_IDLE;
-	musb->is_active = 1;
 
 	/*
 	 * FIXME this ignores the softconnect flag.  Drivers are
@@ -1998,8 +1928,6 @@ int usb_gadget_probe_driver(struct usb_gadget_driver *driver,
 
 	if (!is_otg_enabled(musb))
 		musb_start(musb);
-
-	otg_set_peripheral(musb->xceiv, &musb->g);
 
 	spin_unlock_irqrestore(&musb->lock, flags);
 
@@ -2032,15 +1960,9 @@ int usb_gadget_probe_driver(struct usb_gadget_driver *driver,
 err2:
 	if (!is_otg_enabled(musb))
 		musb_stop(musb);
-
-err1:
-	musb->gadget_driver = NULL;
-	musb->g.dev.driver = NULL;
-
 err0:
 	return retval;
 }
-EXPORT_SYMBOL(usb_gadget_probe_driver);
 
 static void stop_activity(struct musb *musb, struct usb_gadget_driver *driver)
 {
@@ -2090,16 +2012,11 @@ static void stop_activity(struct musb *musb, struct usb_gadget_driver *driver)
  *
  * @param driver the gadget driver to unregister
  */
-int usb_gadget_unregister_driver(struct usb_gadget_driver *driver)
+static int musb_gadget_stop(struct usb_gadget *g,
+		struct usb_gadget_driver *driver)
 {
-	struct musb	*musb = the_gadget;
+	struct musb	*musb = gadget_to_musb(g);
 	unsigned long	flags;
-
-	if (!driver || !driver->unbind || !musb)
-		return -EINVAL;
-
-	if (!musb->gadget_driver)
-		return -EINVAL;
 
 	if (musb->xceiv->last_event == USB_EVENT_NONE)
 		pm_runtime_get_sync(musb->controller);
@@ -2111,9 +2028,7 @@ int usb_gadget_unregister_driver(struct usb_gadget_driver *driver)
 
 	spin_lock_irqsave(&musb->lock, flags);
 
-#ifdef	CONFIG_USB_MUSB_OTG
 	musb_hnp_stop(musb);
-#endif
 
 	(void) musb_gadget_vbus_draw(&musb->g, 0);
 
@@ -2122,13 +2037,6 @@ int usb_gadget_unregister_driver(struct usb_gadget_driver *driver)
 	otg_set_peripheral(musb->xceiv, NULL);
 
 	dev_dbg(musb->controller, "unregistering driver %s\n", driver->function);
-
-	spin_unlock_irqrestore(&musb->lock, flags);
-	driver->unbind(&musb->g);
-	spin_lock_irqsave(&musb->lock, flags);
-
-	musb->gadget_driver = NULL;
-	musb->g.dev.driver = NULL;
 
 	musb->is_active = 0;
 	musb_platform_try_idle(musb, 0);
@@ -2149,8 +2057,6 @@ int usb_gadget_unregister_driver(struct usb_gadget_driver *driver)
 
 	return 0;
 }
-EXPORT_SYMBOL(usb_gadget_unregister_driver);
-
 
 /* ----------------------------------------------------------------------- */
 
@@ -2198,9 +2104,6 @@ void musb_g_suspend(struct musb *musb)
 			spin_lock(&musb->lock);
 		}
 		break;
-	case OTG_STATE_B_HOST:
-		dev_dbg(musb->controller, "B_HOST. Revisit\n");
-		break;
 	default:
 		/* REVISIT if B_HOST, clear DEVCTL.HOSTREQ;
 		 * A_PERIPHERAL may need care too
@@ -2223,19 +2126,6 @@ void musb_g_disconnect(struct musb *musb)
 	u8	devctl = musb_readb(mregs, MUSB_DEVCTL);
 
 	dev_dbg(musb->controller, "devctl %02x\n", devctl);
-#ifdef CONFIG_USB_OTG_20
-	/*
-	 * OTG 2.0 Compliance
-	 * In host mode, do not do a gadget_disconnect
-	 */
-	if (is_host_enabled(musb))
-		return; /* fail safe */
-#endif
-
-	if(musb->is_disconnected)
-		return;
-	else
-		musb->is_disconnected = 1;
 
 	/* clear HR */
 	musb_writeb(mregs, MUSB_DEVCTL, devctl & MUSB_DEVCTL_SESSION);
@@ -2252,7 +2142,6 @@ void musb_g_disconnect(struct musb *musb)
 
 	switch (musb->xceiv->state) {
 	default:
-#ifdef	CONFIG_USB_MUSB_OTG
 		dev_dbg(musb->controller, "Unhandled disconnect %s, setting a_idle\n",
 			otg_state_string(musb->xceiv->state));
 		musb->xceiv->state = OTG_STATE_A_IDLE;
@@ -2264,7 +2153,6 @@ void musb_g_disconnect(struct musb *musb)
 		break;
 	case OTG_STATE_B_WAIT_ACON:
 	case OTG_STATE_B_HOST:
-#endif
 	case OTG_STATE_B_PERIPHERAL:
 	case OTG_STATE_B_IDLE:
 		musb->xceiv->state = OTG_STATE_B_IDLE;
@@ -2309,7 +2197,6 @@ __acquires(musb->lock)
 
 	/* start in USB_STATE_DEFAULT */
 	musb->is_active = 1;
-	musb->is_disconnected = 0;
 	musb->is_suspended = 0;
 	MUSB_DEV_MODE(musb);
 	musb->address = 0;

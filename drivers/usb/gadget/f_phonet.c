@@ -8,18 +8,9 @@
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful, but
- * WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
- * 02110-1301 USA
  */
 
+#include <linux/mm.h>
 #include <linux/slab.h>
 #include <linux/kernel.h>
 #include <linux/device.h>
@@ -32,8 +23,6 @@
 #include <linux/usb/ch9.h>
 #include <linux/usb/cdc.h>
 #include <linux/usb/composite.h>
-#include <linux/phonet.h>
-#include <net/phonet/pn_dev.h>
 
 #include "u_phonet.h"
 
@@ -200,14 +189,11 @@ static struct usb_descriptor_header *hs_pn_function[] = {
 static int pn_net_open(struct net_device *dev)
 {
 	netif_wake_queue(dev);
-	/* Default route is PN_DEV_PC for this Phonet interface */
-	phonet_route_add(dev, PN_DEV_PC);
 	return 0;
 }
 
 static int pn_net_close(struct net_device *dev)
 {
-	phonet_route_del(dev, PN_DEV_PC);
 	netif_stop_queue(dev);
 	return 0;
 }
@@ -343,31 +329,27 @@ static void pn_rx_complete(struct usb_ep *ep, struct usb_request *req)
 	case 0:
 		spin_lock_irqsave(&fp->rx.lock, flags);
 		skb = fp->rx.skb;
-		if (!skb) {
+		if (!skb)
 			skb = fp->rx.skb = netdev_alloc_skb(dev, 12);
-			if (likely(skb)) {
-				/* Can't use pskb_pull() on page in IRQ */
-				memcpy(skb_put(skb, 1), page_address(page), 1);
-				skb_add_rx_frag(skb, skb_shinfo(skb)->nr_frags,
-						page, 1, req->actual);
-				page = NULL;
-			}
-		} else {
-			skb_add_rx_frag(skb, skb_shinfo(skb)->nr_frags,
-					page, 0, req->actual);
-			page = NULL;
-		}
-
-		if (req->actual < PAGE_SIZE)
-			fp->rx.skb = NULL; /* Last fragment */
-		else
-			skb = NULL;
+		if (req->actual < req->length) /* Last fragment */
+			fp->rx.skb = NULL;
 		spin_unlock_irqrestore(&fp->rx.lock, flags);
 
-		if (skb) {
+		if (unlikely(!skb))
+			break;
+
+		if (skb->len == 0) { /* First fragment */
 			skb->protocol = htons(ETH_P_PHONET);
 			skb_reset_mac_header(skb);
-			__skb_pull(skb, 1);
+			/* Can't use pskb_pull() on page in IRQ */
+			memcpy(skb_put(skb, 1), page_address(page), 1);
+		}
+
+		skb_add_rx_frag(skb, skb_shinfo(skb)->nr_frags, page,
+				skb->len == 0, req->actual);
+		page = NULL;
+
+		if (req->actual < req->length) { /* Last fragment */
 			skb->dev = dev;
 			dev->stats.rx_packets++;
 			dev->stats.rx_bytes += skb->len;
@@ -436,17 +418,17 @@ static int pn_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 		spin_lock(&port->lock);
 		__pn_reset(f);
 		if (alt == 1) {
-			struct usb_endpoint_descriptor *out, *in;
 			int i;
 
-			out = ep_choose(gadget,
-					&pn_hs_sink_desc,
-					&pn_fs_sink_desc);
-			in = ep_choose(gadget,
-					&pn_hs_source_desc,
-					&pn_fs_source_desc);
-			usb_ep_enable(fp->out_ep, out);
-			usb_ep_enable(fp->in_ep, in);
+			if (config_ep_by_speed(gadget, f, fp->in_ep) ||
+			    config_ep_by_speed(gadget, f, fp->out_ep)) {
+				fp->in_ep->desc = NULL;
+				fp->out_ep->desc = NULL;
+				spin_unlock(&port->lock);
+				return -EINVAL;
+			}
+			usb_ep_enable(fp->out_ep);
+			usb_ep_enable(fp->in_ep);
 
 			port->usb = fp;
 			fp->out_ep->driver_data = fp;
@@ -497,6 +479,7 @@ static void pn_disconnect(struct usb_function *f)
 
 /*-------------------------------------------------------------------------*/
 
+static __init
 int pn_bind(struct usb_configuration *c, struct usb_function *f)
 {
 	struct usb_composite_dev *cdev = c->cdev;
@@ -594,7 +577,7 @@ pn_unbind(struct usb_configuration *c, struct usb_function *f)
 
 static struct net_device *dev;
 
-int phonet_bind_config(struct usb_configuration *c)
+int __init phonet_bind_config(struct usb_configuration *c)
 {
 	struct f_phonet *fp;
 	int err, size;
