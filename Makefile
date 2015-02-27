@@ -1,15 +1,8 @@
 VERSION = 3
-<<<<<<< HEAD
 PATCHLEVEL = 1
 SUBLEVEL = 10
 EXTRAVERSION = -rc1
 NAME = Divemaster Edition
-=======
-PATCHLEVEL = 0
-SUBLEVEL = 101
-EXTRAVERSION =
-NAME = Saber-toothed Squirrel
->>>>>>> 6313478... cpufreq: re-add ZenX
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
