@@ -28,9 +28,11 @@
 #include <linux/irq.h>
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
+#include <linux/module.h>
 #include <linux/lcd.h>
 #include <linux/backlight.h>
 #include <linux/mutex.h>
+#include <linux/kthread.h>
 #include <linux/workqueue.h>
 #ifdef CONFIG_HAS_EARLYSUSPEND
 #include <linux/earlysuspend.h>
@@ -85,9 +87,71 @@
 
 #define DPI_DISP_TRACE	dev_dbg(&ddev->dev, "%s\n", __func__)
 
+/* S6D27A1 PRCMU LCDCLK */
+/* 60+++	79872000 unsafe
+ * 60++ 	62400000 unsafe
+ * 60+  	57051428 unsafe
+ * 60   	49920000
+ * 50   	39936000
+ * 45   	36305454
+ * 40   	33280000
+ */
+#include <linux/mfd/dbx500-prcmu.h>
+#include <linux/mfd/db8500-prcmu.h>
+
+#define LCDCLK_SET(clk) prcmu_set_clock_rate(PRCMU_LCDCLK, (unsigned long) clk);
+
+struct lcdclk_prop
+{
+	char *name;
+	unsigned int clk;
+};
+
+static struct lcdclk_prop lcdclk_prop[] = {
+  	[0] = {
+		.name = "60++ Hz",
+		.clk = 62400000,
+	},
+  	[1] = {
+		.name = "60+ Hz",
+		.clk = 57051428,
+	},
+	[2] = {
+		.name = "60 Hz",
+		.clk = 49920000,
+	},
+	[3] = {
+		.name = "50 Hz",
+		.clk = 39936000,
+	},
+	[4] = {
+		.name = "45 Hz",
+		.clk = 36305454,
+	},
+	[5] = {
+		.name = "40 Hz",
+		.clk = 33280000,
+	},
+};
+
+static unsigned int lcdclk_usr = 0; /* 60++ fps */
+
+static void s6d27a1_lcdclk_thread(struct work_struct *ws2401_lcdclk_work)
+{
+	msleep(200);
+
+	pr_err("[s6d27a1] LCDCLK %dHz\n", lcdclk_prop[lcdclk_usr].clk);
+
+	LCDCLK_SET(lcdclk_prop[lcdclk_usr].clk);
+}
+static DECLARE_WORK(s6d27a1_lcdclk_work, s6d27a1_lcdclk_thread);
+
+
+static signed char apeopp_requirement = 0, ddropp_requirement = 0;
+
 /* to be removed when display works */
 //#define dev_dbg	dev_info
-#define ESD_OPERATION
+/*#define ESD_OPERATION*/
 /*
 #define ESD_TEST
 */
@@ -372,6 +436,7 @@ static void s6d27a1_release_opp(struct s6d27a1_dpi *lcd)
 	}
 }
 
+#if 0
 /* Reverse order of power on and channel update as compared with MCDE default display update */
 static int s6d27a1_display_update(struct mcde_display_device *ddev,
 							bool tripple_buffer)
@@ -411,6 +476,7 @@ static int s6d27a1_display_update(struct mcde_display_device *ddev,
 		
 	return 0;
 }
+#endif
 
 static int s6d27a1_set_rotation(struct mcde_display_device *ddev,
 	enum mcde_display_rotation rotation)
@@ -575,14 +641,14 @@ static int s6d27a1_dpi_ldi_init(struct s6d27a1_dpi *lcd)
 
 	ret |= s6d27a1_write_dcs_sequence(lcd, DCS_CMD_SEQ_S6D27A1_INIT);
 
-
+/*
 	if (lcd->pd->bl_ctrl)
 		ret |= s6d27a1_write_dcs_sequence(lcd,
 				DCS_CMD_SEQ_S6D27A1_ENABLE_BACKLIGHT_CONTROL);
 	else
 		ret |= s6d27a1_write_dcs_sequence(lcd,
 				DCS_CMD_SEQ_S6D27A1_DISABLE_BACKLIGHT_CONTROL);
-
+*/
 	return ret;
 }
 
@@ -590,18 +656,29 @@ static int s6d27a1_dpi_ldi_enable(struct s6d27a1_dpi *lcd)
 {
 	int ret = 0;
 	dev_dbg(lcd->dev, "s6d27a1_dpi_ldi_enable\n");
-
+	
+	if (lcd->pd->sleep_out_delay)
+			msleep(lcd->pd->sleep_out_delay);
 	ret |= s6d27a1_write_dcs_sequence(lcd, DCS_CMD_SEQ_S6D27A1_DISPLAY_ON);
+	
+	if (lcd->pd->sleep_out_delay)
+			msleep(lcd->pd->sleep_out_delay);
+	if (!ret)
+		lcd->ldi_state = LDI_STATE_ON;
 
 	return ret;
 }
 
 static int s6d27a1_dpi_ldi_disable(struct s6d27a1_dpi *lcd)
 {
-	int ret;
+	int ret = 0;
 
 	dev_dbg(lcd->dev, "s6d27a1_dpi_ldi_disable\n");
-	ret = s6d27a1_write_dcs_sequence(lcd,
+	
+	ret |= s6d27a1_write_dcs_sequence(lcd,
+					DCS_CMD_SEQ_S6D27A1_DISPLAY_OFF);
+
+	ret |= s6d27a1_write_dcs_sequence(lcd,
 				DCS_CMD_SEQ_S6D27A1_ENTER_SLEEP_MODE);
 
 	if (lcd->pd->sleep_in_delay)
@@ -876,6 +953,101 @@ static const struct backlight_ops s6d27a1_dpi_backlight_ops  = {
 	.update_status = s6d27a1_dpi_set_brightness,
 };
 
+static ssize_t s6d27a1_sysfs_show_lcdclk(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	int i;
+	bool matched;
+
+	sprintf(buf, "Current: %s\n\n", lcdclk_prop[lcdclk_usr].name);
+
+	for (i = 0; i < ARRAY_SIZE(lcdclk_prop); i++) {
+		if (i == lcdclk_usr)
+			matched = true;
+		else
+			matched = false;
+
+		sprintf(buf, "%s[%d][%s] %s\n", buf, i, matched ? "*" : " ", lcdclk_prop[i].name);
+	}
+
+	return strlen(buf);
+}
+
+static ssize_t s6d27a1_sysfs_store_lcdclk(struct device *dev,
+	struct device_attribute *attr,
+	const char *buf, size_t len)
+{
+	int ret, tmp;
+
+	ret = sscanf(buf, "%d", &tmp);
+	if (!ret || (tmp < 0) || (tmp > 3)) {
+		  pr_err("[s6d27a1] Bad cmd\n");
+		  return -EINVAL;
+	}
+
+	lcdclk_usr = tmp;
+
+	schedule_work(&s6d27a1_lcdclk_work);
+
+	return len;
+}
+
+static DEVICE_ATTR(lcdclk, 0644, s6d27a1_sysfs_show_lcdclk, s6d27a1_sysfs_store_lcdclk);
+
+static ssize_t s6d_sysfs_show_opp(struct device *dev,
+				      struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "apeopp=%d\n"
+			    "ddropp=%d\n",
+			    apeopp_requirement,
+			    ddropp_requirement);
+}
+
+static ssize_t s6d_sysfs_store_opp(struct device *dev,
+				       struct device_attribute *attr,
+				       const char *buf, size_t len)
+{
+	int val;
+  
+  	if (!strncmp(&buf[0], "apeopp=", 7))
+	{
+		sscanf(&buf[7], "%d", &val);
+		
+		if ((val != 25) && (val != 50) && (val != 100))
+			goto out;
+		
+		apeopp_requirement = val;
+		
+		prcmu_qos_update_requirement(PRCMU_QOS_APE_OPP,
+			"codina_lcd_dpi", apeopp_requirement ?
+			apeopp_requirement : 50);
+
+		return len;
+	}
+	
+	if (!strncmp(&buf[0], "ddropp=", 7))
+	{
+		sscanf(&buf[7], "%d", &val);
+		
+		if ((val != 25) && (val != 50) && (val != 100))
+			goto out;
+		
+		ddropp_requirement = val;
+		
+		prcmu_qos_update_requirement(PRCMU_QOS_DDR_OPP,
+			"codina_lcd_dpi", ddropp_requirement ?
+			ddropp_requirement : 50);
+
+		return len;
+	}
+	
+out:
+	return -EINVAL;
+}
+static DEVICE_ATTR(mcde_screenon_opp, 0644,
+		s6d_sysfs_show_opp, s6d_sysfs_store_opp);
+
+
 static ssize_t s6d27a1_dpi_sysfs_store_lcd_power(struct device *dev,
 						struct device_attribute *attr,
 						const char *buf, size_t len)
@@ -1116,6 +1288,14 @@ static int __devinit s6d27a1_dpi_mcde_probe(
 	if (ret < 0)
 		dev_err(&(ddev->dev),
 			"failed to add lcd_power sysfs entries\n");
+		
+	ret = device_create_file(&(ddev->dev), &dev_attr_mcde_screenon_opp);	
+	if (ret < 0)
+		dev_err(&(ddev->dev), "failed to add mcde_screeon_opp sysfs entries\n");
+	
+	ret = device_create_file(&(ddev->dev), &dev_attr_lcdclk);
+	if (ret < 0)
+		dev_err(&(ddev->dev), "failed to add sysfs entries\n");
 
 	lcd->spi_drv.driver.name	= "pri_lcd_spi";
 	lcd->spi_drv.driver.bus		= &spi_bus_type;
@@ -1134,11 +1314,10 @@ static int __devinit s6d27a1_dpi_mcde_probe(
 	register_early_suspend(&lcd->earlysuspend);
 #endif
 	//when screen is on, APE_OPP 25 sometimes messes it up
-	//TODO change these to add/update/remove
 	if (prcmu_qos_add_requirement(PRCMU_QOS_APE_OPP,
-			"codina_lcd_dpi", 50)) {
-		pr_info("pcrm_qos_add APE failed\n");
-	}
+				"codina_lcd_dpi", 50)) {
+			pr_info("pcrm_qos_add APE failed\n");
+		}
 	
 	dev_dbg(&ddev->dev, "DPI display probed\n");
 
@@ -1184,6 +1363,7 @@ static void s6d27a1_dpi_mcde_shutdown(struct mcde_display_device *ddev)
 	unregister_early_suspend(&lcd->earlysuspend);
 #endif
 
+	s6d27a1_dpi_power(lcd, FB_BLANK_POWERDOWN);
 	kfree(lcd);
 	mutex_unlock(&ddev->display_lock);
 	dev_dbg(&ddev->dev, "end %s\n", __func__);
@@ -1230,6 +1410,21 @@ static int s6d27a1_dpi_mcde_suspend(
 	return ret;
 }
 
+static void requirements_add_thread(struct work_struct *requirements_add_work)
+{
+	if (prcmu_qos_add_requirement(PRCMU_QOS_APE_OPP,
+			"codina_lcd_dpi", 50)) {
+		pr_info("pcrm_qos_add APE failed\n");
+	}
+}
+static DECLARE_WORK(requirements_add_work, requirements_add_thread);
+
+static void requirements_remove_thread(struct work_struct *requirements_remove_work)
+{
+	prcmu_qos_remove_requirement(PRCMU_QOS_APE_OPP, "codina_lcd_dpi");
+}
+static DECLARE_WORK(requirements_remove_work, requirements_remove_thread);
+
 #ifdef CONFIG_HAS_EARLYSUSPEND
 static void s6d27a1_dpi_mcde_early_suspend(
 		struct early_suspend *earlysuspend)
@@ -1237,13 +1432,14 @@ static void s6d27a1_dpi_mcde_early_suspend(
 	struct s6d27a1_dpi *lcd = container_of(earlysuspend,
 						struct s6d27a1_dpi,
 						earlysuspend);
-	
 	pm_message_t dummy;
+	
+	#ifdef CONFIG_DB8500_LIVEOPP
+	schedule_work(&requirements_remove_work);
+	#endif
 
 	s6d27a1_dpi_mcde_suspend(lcd->mdd, dummy);
-	
-	prcmu_qos_remove_requirement(PRCMU_QOS_APE_OPP,
-				"codina_lcd_dpi");
+
 }
 
 static void s6d27a1_dpi_mcde_late_resume(
@@ -1252,13 +1448,18 @@ static void s6d27a1_dpi_mcde_late_resume(
 	struct s6d27a1_dpi *lcd = container_of(earlysuspend,
 						struct s6d27a1_dpi,
 						earlysuspend);
-
-	if (prcmu_qos_add_requirement(PRCMU_QOS_APE_OPP,
-			"codina_lcd_dpi", 50)) {
-		pr_info("pcrm_qos_add APE failed\n");
-	}
 	
+	#ifdef CONFIG_DB8500_LIVEOPP
+	schedule_work(&requirements_add_work);
+	#endif
+
 	s6d27a1_dpi_mcde_resume(lcd->mdd);
+	
+	if (lcdclk_usr != 0) {
+		pr_err("[s6d27a1] Rebasing LCDCLK...\n");
+		schedule_work(&s6d27a1_lcdclk_work);
+	}
+
 }
 #endif
 
