@@ -1,21 +1,3 @@
-/*
- * Copyright 2013: Olympus Kernel Project
- * <http://forum.xda-developers.com/showthread.php?t=2016837>
- 
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
-
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
-
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
-
 #ifndef __LINUX_USB_H
 #define __LINUX_USB_H
 
@@ -202,7 +184,6 @@ struct usb_interface {
 	struct device dev;		/* interface specific device info */
 	struct device *usb_dev;
 	atomic_t pm_usage_cnt;		/* usage counter for autosuspend */
-	struct delayed_work autopm_ws;	/* delayed autosuspend requests */
 	struct work_struct reset_ws;	/* for resets in atomic context */
 };
 #define	to_usb_interface(d) container_of(d, struct usb_interface, dev)
@@ -340,6 +321,13 @@ struct usb_bus {
 	u8 otg_port;			/* 0, or number of OTG/HNP port */
 	unsigned is_b_host:1;		/* true during some HNP roleswitches */
 	unsigned b_hnp_enable:1;	/* OTG: did A-Host enable HNP? */
+#ifdef CONFIG_USB_OTG
+	unsigned hnp_support:1;         /* OTG: HNP is supported on OTG port */
+	struct delayed_work hnp_polling;/* OTG: HNP polling work */
+#ifdef CONFIG_USB_OTG_20
+	struct delayed_work hnp_suspend; /* host mode suspend work */
+#endif
+#endif
 	unsigned sg_tablesize;		/* 0 or largest number of sg list entries */
 
 	int devnum_next;		/* Next open device number in
@@ -381,7 +369,15 @@ struct usb_bus {
  * limit. Because the arrays need to add a bit for hub status data, we
  * do 31, so plus one evens out to four bytes.
  */
+
+#ifdef CONFIG_ARCH_U8500
+/**
+* On U8500 platform we support 16 ports only
+*/
+#define USB_MAXCHILDREN		(16)
+#else
 #define USB_MAXCHILDREN		(31)
+#endif
 
 struct usb_tt;
 
@@ -544,7 +540,6 @@ extern int usb_autopm_get_interface_async(struct usb_interface *intf);
 extern void usb_autopm_put_interface_async(struct usb_interface *intf);
 extern void usb_autopm_get_interface_no_resume(struct usb_interface *intf);
 extern void usb_autopm_put_interface_no_suspend(struct usb_interface *intf);
-extern void usb_autopm_schedule_autosuspend(struct usb_interface *intf, int delay);
 
 static inline void usb_mark_last_busy(struct usb_device *udev)
 {

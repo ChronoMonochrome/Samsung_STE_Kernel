@@ -497,19 +497,6 @@ static int exception_in_progress(struct fsg_dev *fsg)
 	return (fsg->state > FSG_STATE_IDLE);
 }
 
-/* Make bulk-out requests be divisible by the maxpacket size */
-static void set_bulk_out_req_length(struct fsg_dev *fsg,
-		struct fsg_buffhd *bh, unsigned int length)
-{
-	unsigned int	rem;
-
-	bh->bulk_out_intended_length = length;
-	rem = length % fsg->bulk_out_maxpacket;
-	if (rem > 0)
-		length += fsg->bulk_out_maxpacket - rem;
-	bh->outreq->length = length;
-}
-
 static struct fsg_dev			*the_fsg;
 static struct usb_gadget_driver		fsg_driver;
 
@@ -730,10 +717,9 @@ static void bulk_out_complete(struct usb_ep *ep, struct usb_request *req)
 	struct fsg_buffhd	*bh = req->context;
 
 	dump_msg(fsg, "bulk-out", req->buf, req->actual);
-	if (req->status || req->actual != bh->bulk_out_intended_length)
+	if (req->status || req->actual != req->length)
 		DBG(fsg, "%s --> %d, %u/%u\n", __func__,
-				req->status, req->actual,
-				bh->bulk_out_intended_length);
+				req->status, req->actual, req->length);
 	if (req->status == -ECONNRESET)		// Request was cancelled
 		usb_ep_fifo_flush(ep);
 
@@ -929,7 +915,6 @@ static int standard_setup_req(struct fsg_dev *fsg,
 
 		case USB_DT_DEVICE:
 			VDBG(fsg, "get device descriptor\n");
-			device_desc.bMaxPacketSize0 = fsg->ep0->maxpacket;
 			value = sizeof device_desc;
 			memcpy(req->buf, &device_desc, value);
 			break;
@@ -937,11 +922,6 @@ static int standard_setup_req(struct fsg_dev *fsg,
 			VDBG(fsg, "get device qualifier\n");
 			if (!gadget_is_dualspeed(fsg->gadget))
 				break;
-			/*
-			 * Assume ep0 uses the same maxpacket value for both
-			 * speeds
-			 */
-			dev_qualifier.bMaxPacketSize0 = fsg->ep0->maxpacket;
 			value = sizeof dev_qualifier;
 			memcpy(req->buf, &dev_qualifier, value);
 			break;
@@ -1355,8 +1335,7 @@ static int do_write(struct fsg_dev *fsg)
 
 			/* amount is always divisible by 512, hence by
 			 * the bulk-out maxpacket size */
-			bh->outreq->length = bh->bulk_out_intended_length =
-					amount;
+			bh->outreq->length = amount;
 			bh->outreq->short_not_ok = 1;
 			start_transfer(fsg, fsg->bulk_out, bh->outreq,
 					&bh->outreq_busy, &bh->state);
@@ -1985,8 +1964,7 @@ static int throw_away_data(struct fsg_dev *fsg)
 
 			/* amount is always divisible by 512, hence by
 			 * the bulk-out maxpacket size */
-			bh->outreq->length = bh->bulk_out_intended_length =
-					amount;
+			bh->outreq->length = amount;
 			bh->outreq->short_not_ok = 1;
 			start_transfer(fsg, fsg->bulk_out, bh->outreq,
 					&bh->outreq_busy, &bh->state);
@@ -2665,8 +2643,8 @@ static int get_next_command(struct fsg_dev *fsg)
 		}
 
 		/* Queue a request to read a Bulk-only CBW */
-		set_bulk_out_req_length(fsg, bh, USB_BULK_CB_WRAP_LEN);
-		bh->outreq->short_not_ok = 1;
+		bh->outreq->length = USB_BULK_CB_WRAP_LEN;
+		bh->outreq->short_not_ok = 0;
 		start_transfer(fsg, fsg->bulk_out, bh->outreq,
 				&bh->outreq_busy, &bh->state);
 
@@ -2719,8 +2697,7 @@ static int enable_endpoint(struct fsg_dev *fsg, struct usb_ep *ep,
 	int	rc;
 
 	ep->driver_data = fsg;
-	ep->desc = d;
-	rc = usb_ep_enable(ep);
+	rc = usb_ep_enable(ep, d);
 	if (rc)
 		ERROR(fsg, "can't enable %s, result %d\n", ep->name, rc);
 	return rc;
@@ -3423,6 +3400,7 @@ static int __init fsg_bind(struct usb_gadget *gadget)
 	}
 
 	/* Fix up the descriptors */
+	device_desc.bMaxPacketSize0 = fsg->ep0->maxpacket;
 	device_desc.idVendor = cpu_to_le16(mod_data.vendor);
 	device_desc.idProduct = cpu_to_le16(mod_data.product);
 	device_desc.bcdDevice = cpu_to_le16(mod_data.release);
@@ -3435,6 +3413,9 @@ static int __init fsg_bind(struct usb_gadget *gadget)
 
 	if (gadget_is_dualspeed(gadget)) {
 		fsg_hs_function[i + FSG_HS_FUNCTION_PRE_EP_ENTRIES] = NULL;
+
+		/* Assume ep0 uses the same maxpacket value for both speeds */
+		dev_qualifier.bMaxPacketSize0 = fsg->ep0->maxpacket;
 
 		/* Assume endpoint addresses are the same for both speeds */
 		fsg_hs_bulk_in_desc.bEndpointAddress =
@@ -3489,8 +3470,6 @@ static int __init fsg_bind(struct usb_gadget *gadget)
 	}
 
 	INFO(fsg, DRIVER_DESC ", version: " DRIVER_VERSION "\n");
-	INFO(fsg, "NOTE: This driver is deprecated.  "
-			"Consider using g_mass_storage instead.\n");
 	INFO(fsg, "Number of LUNs=%d\n", fsg->nluns);
 
 	pathbuf = kmalloc(PATH_MAX, GFP_KERNEL);

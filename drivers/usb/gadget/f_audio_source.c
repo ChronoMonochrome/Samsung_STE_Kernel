@@ -2,8 +2,6 @@
  * Gadget Function Driver for USB audio source device
  *
  * Copyright (C) 2012 Google, Inc.
- * Copyright 2013: Olympus Kernel Project
- * <http://forum.xda-developers.com/showthread.php?t=2016837>
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -24,11 +22,9 @@
 #include <sound/pcm.h>
 
 #define SAMPLE_RATE 44100
-/* Each frame is two 16 bit integers (one per channel) */
-#define BYTES_PER_FRAME 4
 #define FRAMES_PER_MSEC (SAMPLE_RATE / 1000)
 
-#define IN_EP_MAX_PACKET_SIZE 256
+#define IN_EP_MAX_PACKET_SIZE 384
 
 /* Number of requests to allocate */
 #define IN_EP_REQ_COUNT 4
@@ -416,7 +412,7 @@ static void audio_data_complete(struct usb_ep *ep, struct usb_request *req)
 
 	audio_req_put(audio, req);
 
-	if (!audio->buffer_start)
+	if (!audio->buffer_start || req->status)
 		return;
 
 	audio->period_offset += req->actual;
@@ -528,11 +524,9 @@ audio_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 static int audio_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 {
 	struct audio_dev *audio = func_to_audio(f);
-	struct usb_composite_dev *cdev = f->config->cdev;
 
 	pr_debug("audio_set_alt intf %d, alt %d\n", intf, alt);
-	config_ep_by_speed(cdev->gadget, f, audio->in_ep);
-	usb_ep_enable(audio->in_ep);
+	usb_ep_enable(audio->in_ep, audio->in_desc);
 	return 0;
 }
 
@@ -626,7 +620,10 @@ audio_unbind(struct usb_configuration *c, struct usb_function *f)
 		audio_request_free(req, audio->in_ep);
 
 	snd_card_free_when_closed(audio->card);
-	kfree(audio);
+	audio->card = NULL;
+	audio->pcm = NULL;
+	audio->substream = NULL;
+	audio->in_ep = NULL;
 }
 
 static void audio_pcm_playback_start(struct audio_dev *audio)
@@ -742,6 +739,20 @@ static int audio_pcm_playback_trigger(struct snd_pcm_substream *substream,
 	return ret;
 }
 
+static struct audio_dev _audio_dev = {
+	.func = {
+		.name = "audio_source",
+		.bind = audio_bind,
+		.unbind = audio_unbind,
+		.set_alt = audio_set_alt,
+		.setup = audio_setup,
+		.disable = audio_disable,
+	},
+	.in_desc = &fs_as_in_ep_desc,
+	.lock = __SPIN_LOCK_UNLOCKED(_audio_dev.lock),
+	.idle_reqs = LIST_HEAD_INIT(_audio_dev.idle_reqs),
+};
+
 static struct snd_pcm_ops audio_playback_ops = {
 	.open		= audio_pcm_open,
 	.close		= audio_pcm_close,
@@ -764,27 +775,12 @@ int audio_source_bind_config(struct usb_configuration *c,
 	config->card = -1;
 	config->device = -1;
 
-	audio = kzalloc(sizeof *audio, GFP_KERNEL);
-	if (!audio)
-		return -ENOMEM;
-
-	audio->func.name = "audio_source";
-
-	spin_lock_init(&audio->lock);
-
-	audio->func.bind = audio_bind;
-	audio->func.unbind = audio_unbind;
-	audio->func.set_alt = audio_set_alt;
-	audio->func.setup = audio_setup;
-	audio->func.disable = audio_disable;
-	audio->in_desc = &fs_as_in_ep_desc;
-
-	INIT_LIST_HEAD(&audio->idle_reqs);
+	audio = &_audio_dev;
 
 	err = snd_card_create(SNDRV_DEFAULT_IDX1, SNDRV_DEFAULT_STR1,
 			THIS_MODULE, 0, &card);
 	if (err)
-		goto snd_card_fail;
+		return err;
 
 	snd_card_set_dev(card, &c->cdev->gadget->dev);
 
@@ -823,7 +819,5 @@ add_fail:
 register_fail:
 pcm_fail:
 	snd_card_free(audio->card);
-snd_card_fail:
-	kfree(audio);
 	return err;
 }

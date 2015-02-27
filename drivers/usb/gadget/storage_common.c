@@ -4,8 +4,6 @@
  * Copyright (C) 2003-2008 Alan Stern
  * Copyeight (C) 2009 Samsung Electronics
  * Author: Michal Nazarewicz (m.nazarewicz@samsung.com)
- * Copyright 2013: Olympus Kernel Project
- * <http://forum.xda-developers.com/showthread.php?t=2016837>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -155,15 +153,6 @@
 
 
 /*-------------------------------------------------------------------------*/
-#ifdef CONFIG_USB_MOT_ANDROID
-static int cdrom_enable ;
-static int cdrom_allow_switch = 1;
-
-module_param_named(cdrom, cdrom_enable, bool, S_IRUGO | S_IWUSR);
-MODULE_PARM_DESC(cdrom, "true to emulate cdrom instead of disk");
-module_param_named(cdrom_switch, cdrom_allow_switch, bool, S_IRUGO | S_IWUSR);
-MODULE_PARM_DESC(cdrom_switch, "true to allow switching USB mode when eject is sent");
-#endif
 
 /* Bulk-only data structures */
 
@@ -199,9 +188,7 @@ struct bulk_cs_wrap {
 /* Bulk-only class specific requests */
 #define USB_BULK_RESET_REQUEST		0xff
 #define USB_BULK_GET_MAX_LUN_REQUEST	0xfe
-#ifdef CONFIG_USB_MOT_ANDROID
-#define USB_BULK_GET_ENCAP_RESPONSE     0x02
-#endif
+
 
 /* CBI Interrupt data structure */
 struct interrupt_data {
@@ -298,13 +285,6 @@ struct fsg_buffhd {
 #endif
 	enum fsg_buffer_state		state;
 	struct fsg_buffhd		*next;
-
-	/*
-	 * The NetChip 2280 is faster, and handles some protocol faults
-	 * better, if we don't submit any short bulk-out read requests.
-	 * So we will record the intended request length here.
-	 */
-	unsigned int			bulk_out_intended_length;
 
 	struct usb_request		*inreq;
 	int				inreq_busy;
@@ -507,7 +487,7 @@ static struct usb_descriptor_header *fsg_hs_function[] = {
 };
 
 /* Maxpacket and other transfer characteristics vary by speed. */
-static __maybe_unused struct usb_endpoint_descriptor *
+static struct usb_endpoint_descriptor *
 fsg_ep_desc(struct usb_gadget *g, struct usb_endpoint_descriptor *fs,
 		struct usb_endpoint_descriptor *hs)
 {
@@ -776,7 +756,7 @@ static ssize_t fsg_store_file(struct device *dev, struct device_attribute *attr,
 	struct rw_semaphore	*filesem = dev_get_drvdata(dev);
 	int		rc = 0;
 
-#ifndef CONFIG_USB_MOT_ANDROID
+
 #ifndef CONFIG_USB_ANDROID_MASS_STORAGE
 	/* disabled in android because we need to allow closing the backing file
 	 * if the media was removed
@@ -785,7 +765,6 @@ static ssize_t fsg_store_file(struct device *dev, struct device_attribute *attr,
 		LDBG(curlun, "eject attempt prevented\n");
 		return -EBUSY;				/* "Door is locked" */
 	}
-#endif
 #endif
 
 	/* Remove a trailing newline */

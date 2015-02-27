@@ -13,7 +13,6 @@ usbserial-$(CONFIG_USB_EZUSB)		+= ezusb.o
 
 obj-$(CONFIG_USB_SERIAL_AIRCABLE)		+= aircable.o
 obj-$(CONFIG_USB_SERIAL_ARK3116)		+= ark3116.o
-obj-$(CONFIG_USB_SERIAL_BASEBAND)		+= baseband_usb_chr.o
 obj-$(CONFIG_USB_SERIAL_BELKIN)			+= belkin_sa.o
 obj-$(CONFIG_USB_SERIAL_CH341)			+= ch341.o
 obj-$(CONFIG_USB_SERIAL_CP210X)			+= cp210x.o
@@ -40,8 +39,6 @@ obj-$(CONFIG_USB_SERIAL_MCT_U232)		+= mct_u232.o
 obj-$(CONFIG_USB_SERIAL_MOS7720)		+= mos7720.o
 obj-$(CONFIG_USB_SERIAL_MOS7840)		+= mos7840.o
 obj-$(CONFIG_USB_SERIAL_MOTOROLA)		+= moto_modem.o
-obj-$(CONFIG_USB_SERIAL_MDM6600)		+= mdm6600.o
-obj-$(CONFIG_USB_SERIAL_MOTO_FLASH_MODEM)      += moto_flashqsc.o
 obj-$(CONFIG_USB_SERIAL_NAVMAN)			+= navman.o
 obj-$(CONFIG_USB_SERIAL_OMNINET)		+= omninet.o
 obj-$(CONFIG_USB_SERIAL_OPTICON)		+= opticon.o

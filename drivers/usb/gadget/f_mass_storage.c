@@ -4,8 +4,6 @@
  * Copyright (C) 2003-2008 Alan Stern
  * Copyright (C) 2009 Samsung Electronics
  *                    Author: Michal Nazarewicz <m.nazarewicz@samsung.com>
- * Copyright 2013: Olympus Kernel Project
- * <http://forum.xda-developers.com/showthread.php?t=2016837>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -314,16 +312,7 @@ static const char fsg_string_interface[] = "Mass Storage";
 
 #include "storage_common.c"
 
-#ifdef CONFIG_USB_MOT_ANDROID
-#define USB_SMART_VERSION_SIZE 255
-u8 sm_vers[USB_SMART_VERSION_SIZE];
-u8 sm_vers_sz;
-void update_function_type_and_reenumerate(int index);
-void set_cdrom_umount(void);
-#define CDROM_INDEX 0x00
-#define CDROM2_INDEX 0x33
-#define MTPUSBNET_INDEX 0x1E
-#endif
+
 /*-------------------------------------------------------------------------*/
 
 struct fsg_dev;
@@ -380,7 +369,6 @@ struct fsg_common {
 	u8			cmnd[MAX_COMMAND_SIZE];
 
 	unsigned int		nluns;
-	unsigned int		cdrom_lun_num;
 	unsigned int		lun;
 	struct fsg_lun		*luns;
 	struct fsg_lun		*curlun;
@@ -418,15 +406,16 @@ struct fsg_common {
 	 */
 	char inquiry_string[8 + 16 + 4 + 1];
 
-	struct kref		ref;
-#ifdef CONFIG_USB_MOT_ANDROID
-	unsigned int		switch_mode:1;
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+	char vendor_string[8 + 1];
+	char product_string[16 + 1];
 #endif
+
+	struct kref		ref;
 };
 
 struct fsg_config {
 	unsigned nluns;
-	unsigned cdrom_lun_num;
 	struct fsg_lun_config {
 		const char *filename;
 		char ro;
@@ -490,20 +479,6 @@ static int exception_in_progress(struct fsg_common *common)
 {
 	return common->state > FSG_STATE_IDLE;
 }
-
-/* Make bulk-out requests be divisible by the maxpacket size */
-static void set_bulk_out_req_length(struct fsg_common *common,
-				    struct fsg_buffhd *bh, unsigned int length)
-{
-	unsigned int	rem;
-
-	bh->bulk_out_intended_length = length;
-	rem = length % common->bulk_out_maxpacket;
-	if (rem > 0)
-		length += common->bulk_out_maxpacket - rem;
-	bh->outreq->length = length;
-}
-
 
 /*-------------------------------------------------------------------------*/
 
@@ -603,9 +578,9 @@ static void bulk_out_complete(struct usb_ep *ep, struct usb_request *req)
 	struct fsg_buffhd	*bh = req->context;
 
 	dump_msg(common, "bulk-out", req->buf, req->actual);
-	if (req->status || req->actual != bh->bulk_out_intended_length)
+	if (req->status || req->actual != req->length)
 		DBG(common, "%s --> %d, %u/%u\n", __func__,
-		    req->status, req->actual, bh->bulk_out_intended_length);
+		    req->status, req->actual, req->length);
 	if (req->status == -ECONNRESET)		/* Request was cancelled */
 		usb_ep_fifo_flush(ep);
 
@@ -616,63 +591,6 @@ static void bulk_out_complete(struct usb_ep *ep, struct usb_request *req)
 	bh->state = BUF_STATE_FULL;
 	wakeup_thread(common);
 	spin_unlock(&common->lock);
-}
-
-static int fsg_ctrlrequest(struct usb_composite_dev *cdev,
-			   const struct usb_ctrlrequest *ctrl)
-{
-	struct usb_request      *req = cdev->req;
-	u16                     w_index = le16_to_cpu(ctrl->wIndex);
-	u16                     w_value = le16_to_cpu(ctrl->wValue);
-	u16                     w_length = le16_to_cpu(ctrl->wLength);
-	int rc = -EOPNOTSUPP;
-
-	req->length = 0;
-
-	switch (ctrl->bRequest) {
-#ifdef CONFIG_USB_MOT_ANDROID
-	case USB_BULK_GET_ENCAP_RESPONSE:
-		printk(KERN_INFO "get smart version\n");
-		if (!((ctrl->bRequestType & USB_TYPE_MASK) ==
-		      USB_TYPE_VENDOR)) {
-			printk(KERN_INFO "%s: invalid vendor command "
-			       "request\n", __func__);
-			break;
-		}
-
-		if (w_value != 1 || w_index) {
-			printk(KERN_INFO "%s: Invalid len/value of "
-			       "encapsulated command\n", __func__);
-			break;
-		} else {
-			printk(KERN_INFO " memcpy USB_BULK_GET_ENCAP_RESPONSE  smart version [%d]\n",
-			       sm_vers_sz);
-			/*
-			 * fill the bufer smart version read
-			 * from cdrom flash partition
-			 */
-			memcpy((void *)req->buf, (void *)sm_vers, sm_vers_sz);
-			req->length = sm_vers_sz;
-			if (req->length >= 0) {
-				rc = usb_ep_queue(cdev->gadget->ep0,
-						  req, GFP_ATOMIC);
-
-				if (rc < 0)
-					printk(KERN_INFO "fsg  setup response error\n");
-
-				return rc;
-			} else
-				printk(KERN_INFO "%s: req len is not valid,"
-				       "exiting\n", __func__);
-		}
-		break;
-#endif
-	}
-	printk(KERN_INFO
-	       "unknown class-specific control req %02x.%02x v%04x i%04x l%u\n",
-	       ctrl->bRequestType, ctrl->bRequest,
-	       le16_to_cpu(ctrl->wValue), w_index, w_length);
-	return -EOPNOTSUPP;
 }
 
 static int fsg_setup(struct usb_function *f,
@@ -716,19 +634,7 @@ static int fsg_setup(struct usb_function *f,
 		if (w_index != fsg->interface_number || w_value != 0)
 			return -EDOM;
 		VDBG(fsg, "get max LUN\n");
-//		*(u8 *)req->buf = fsg->common->nluns - 1;
-		if (fsg->common->cdrom_lun_num > 0) {
-			if (cdrom_enable)
-				*(u8 *)req->buf = fsg->common->nluns - 1;
-			else
-				*(u8 *)req->buf =
-					fsg->common->cdrom_lun_num - 1;
-		} else {
-			if (cdrom_enable)
-				*(u8 *)req->buf = 0;
-			else
-				*(u8 *)req->buf = fsg->common->nluns - 1;
-		}
+		*(u8 *)req->buf = fsg->common->nluns - 1;
 
 		/* Respond with data/status */
 		req->length = min((u16)1, w_length);
@@ -993,13 +899,11 @@ static int do_write(struct fsg_common *common)
 			curlun->sense_data = SS_INVALID_FIELD_IN_CDB;
 			return -EINVAL;
 		}
-#ifndef CONFIG_USB_MOT_ANDROID
 		if (!curlun->nofua && (common->cmnd[1] & 0x08)) { /* FUA */
 			spin_lock(&curlun->filp->f_lock);
 			curlun->filp->f_flags |= O_SYNC;
 			spin_unlock(&curlun->filp->f_lock);
 		}
-#endif
 	}
 	if (lba >= curlun->num_sectors) {
 		curlun->sense_data = SS_LOGICAL_BLOCK_ADDRESS_OUT_OF_RANGE;
@@ -1068,7 +972,6 @@ static int do_write(struct fsg_common *common)
 			 * the bulk-out maxpacket size
 			 */
 			bh->outreq->length = amount;
-			bh->bulk_out_intended_length = amount;
 			bh->outreq->short_not_ok = 1;
 			if (!start_out_transfer(common, bh))
 				/* Dunno what to do if common->fsg is NULL */
@@ -1142,19 +1045,11 @@ static int do_write(struct fsg_common *common)
 			}
 			continue;
 		}
-#ifdef CONFIG_USB_MOT_ANDROID
-		/* Do not wait here. Just check for any pending signals and
-		 * continue with the next BH to process */
-		if (signal_pending(current)) {
-			rc = -EINTR;
-			return rc;
-		}
-#else
+
 		/* Wait for something to happen */
 		rc = sleep_thread(common);
 		if (rc)
 			return rc;
-#endif
 	}
 
 	return -EIO;		/* No default reply */
@@ -1295,6 +1190,9 @@ static int do_inquiry(struct fsg_common *common, struct fsg_buffhd *bh)
 {
 	struct fsg_lun *curlun = common->curlun;
 	u8	*buf = (u8 *) bh->buf;
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+	static char new_product_name[16 + 1];
+#endif
 
 	if (!curlun) {		/* Unsupported LUNs are okay */
 		common->bad_lun_okay = 1;
@@ -1312,6 +1210,23 @@ static int do_inquiry(struct fsg_common *common, struct fsg_buffhd *bh)
 	buf[5] = 0;		/* No special options */
 	buf[6] = 0;
 	buf[7] = 0;
+
+#if defined(CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE)
+	strncpy(new_product_name, common->product_string, 16);
+	new_product_name[16] = '\0';
+	if (common->product_string[0] &&
+		strlen(common->product_string) <= 11 && /*check string length*/
+		common->lun > 0) {
+		strncat(new_product_name, " Card", 16);
+		new_product_name[16] = '\0';
+	}
+
+	snprintf(common->inquiry_string,
+		sizeof common->inquiry_string,
+		"%-8s%-16s%04x",
+		common->vendor_string,
+		new_product_name, 1);
+#endif
 	memcpy(buf + 8, common->inquiry_string, sizeof common->inquiry_string);
 	return 36;
 }
@@ -1410,114 +1325,19 @@ static int do_read_header(struct fsg_common *common, struct fsg_buffhd *bh)
 	return 8;
 }
 
-struct toc_header {
-	u8 data_len_msb;
-	u8 data_len_lsb;
-	u8 first_track_number;
-	u8 last_track_number;
-};
-
-struct toc_descriptor {
-	u8 ctrl;
-	u8 adr;
-	u8 tno;
-	u8 point;
-	u8 min;
-	u8 sec;
-	u8 frame;
-	u8 zero;
-	u8 pmin;
-	u8 psec;
-	u8 pframe;
-};
-
-static int build_toc_response_buf(u8 *dest)
-{
-	struct toc_header *pheader = (struct toc_header *)dest;
-	struct toc_descriptor *pdesc;
-
-	/* build header */
-	pheader->data_len_msb = 0x00;
-	pheader->data_len_lsb = 0x2E; /* TOC data length */
-	pheader->first_track_number = 0x01;
-	pheader->last_track_number = 0x01;
-
-	/* toc descriptor 1 */
-	pdesc = (struct toc_descriptor *)&dest[4];
-	pdesc->ctrl = 0x01;
-	pdesc->adr = 0x16;
-	pdesc->tno = 0x00;
-	pdesc->point = 0xA0;
-	pdesc->min = 0x00;
-	pdesc->sec = 0x00;
-	pdesc->frame = 0x00;
-	pdesc->zero = 0x00;
-	pdesc->pmin = 0x01;	/* first track number */
-	pdesc->psec = 0x00;
-	pdesc->pframe = 0x00;
-
-	/* toc descriptor 2 */
-	pdesc = pdesc + 1;
-	pdesc->ctrl = 0x01;
-	pdesc->adr = 0x16;
-	pdesc->tno = 0x00;
-	pdesc->point = 0xA1;
-	pdesc->min = 0x00;
-	pdesc->sec = 0x00;
-	pdesc->frame = 0x00;
-	pdesc->zero = 0x00;
-	pdesc->pmin = 0x01;	/* last track number */
-	pdesc->psec = 0x00;
-	pdesc->pframe = 0x00;
-
-	/* toc descriptor 3 */
-	pdesc = pdesc + 1;
-	pdesc->ctrl = 0x01;
-	pdesc->adr = 0x16;
-	pdesc->tno = 0x00;
-	pdesc->point = 0xA2;
-	pdesc->min = 0x00;
-	pdesc->sec = 0x00;
-	pdesc->frame = 0x00;
-	pdesc->zero = 0x00;
-	pdesc->pmin = 0x4F;	/* pmin, psec, pframe represents */
-	pdesc->psec = 0x21;	/* start position of lead-out */
-	pdesc->pframe = 0x029;
-
-	/* toc descriptor 4 */
-	pdesc = pdesc + 1;
-	pdesc->ctrl = 0x01;
-	pdesc->adr = 0x14;
-	pdesc->tno = 0x00;
-	pdesc->point = 0x01;
-	pdesc->min = 0x00;
-	pdesc->sec = 0x00;
-	pdesc->frame = 0x00;
-	pdesc->zero = 0x00;
-	pdesc->pmin = 0x00;	/* pmin, psec, pframe represents */
-	pdesc->psec = 0x02;	/* start position of track */
-	pdesc->pframe = 0x00;
-
-	/* return total packet length */
-	return (sizeof(struct toc_descriptor)*4) + sizeof(struct toc_header);
-}
-
 static int do_read_toc(struct fsg_common *common, struct fsg_buffhd *bh)
 {
 	struct fsg_lun	*curlun = common->curlun;
-#if 0
 	int		msf = common->cmnd[1] & 0x02;
-#endif
 	int		start_track = common->cmnd[6];
 	u8		*buf = (u8 *)bh->buf;
-	int toc_buf_len = 0;
 
 	if ((common->cmnd[1] & ~0x02) != 0 ||	/* Mask away MSF */
 			start_track > 1) {
 		curlun->sense_data = SS_INVALID_FIELD_IN_CDB;
 		return -EINVAL;
 	}
-#if 0
+
 	memset(buf, 0, 20);
 	buf[1] = (20-2);		/* TOC data length */
 	buf[2] = 1;			/* First track number */
@@ -1530,9 +1350,6 @@ static int do_read_toc(struct fsg_common *common, struct fsg_buffhd *bh)
 	buf[14] = 0xAA;			/* Lead-out track number */
 	store_cdrom_address(&buf[16], msf, curlun->num_sectors);
 	return 20;
-#endif
-	toc_buf_len = build_toc_response_buf(buf);
-	return toc_buf_len;
 }
 
 static int do_mode_sense(struct fsg_common *common, struct fsg_buffhd *bh)
@@ -1672,29 +1489,11 @@ static int do_start_stop(struct fsg_common *common)
 			return 0;
 	}
 
-	/* If lun is removable disk then cdrom parameter
-	 * is set to '0', if lun is cdrom cdrom parameter
-	 * is set to 1.
-	 * Depending on cdrom value, loej=1, start=0 then
-	 * schedule a work-queue for mode change
-	 */
-	if (cdrom_allow_switch && curlun->cdrom && loej && !start) {
-		printk(KERN_INFO "schedule fsg cdrom eject\n");
-		common->switch_mode = 1;
-	}
-
 	up_read(&common->filesem);
 	down_write(&common->filesem);
 	fsg_lun_close(curlun);
 	up_write(&common->filesem);
 	down_read(&common->filesem);
-
-#ifdef CONFIG_USB_MOT_ANDROID
-	if (curlun->cdrom) {
-		pr_info("%s: eject, umount cdrom image\n", __func__);
-		set_cdrom_umount();
-	}
-#endif
 
 	return common->ops && common->ops->post_eject
 		? min(0, common->ops->post_eject(common, curlun,
@@ -1838,7 +1637,6 @@ static int throw_away_data(struct fsg_common *common)
 			 * the bulk-out maxpacket size.
 			 */
 			bh->outreq->length = amount;
-			bh->bulk_out_intended_length = amount;
 			bh->outreq->short_not_ok = 1;
 			if (!start_out_transfer(common, bh))
 				/* Dunno what to do if common->fsg is NULL */
@@ -2287,16 +2085,9 @@ static int do_scsi_command(struct fsg_common *common)
 			goto unknown_cmnd;
 		common->data_size_from_cmnd =
 			get_unaligned_be16(&common->cmnd[7]);
-		/* Set bit 9 to 1 in the mask because Mac Sends a value in byte
-		* 9  of the READ_TOC . Windows does not set it, but changing
-		* the mask covers both host envs.
-		*/
 		reply = check_command(common, 10, DATA_DIR_TO_HOST,
-				      (0xf<<6) | (1<<1), 1,
-				      "READ TOC");
-/*		reply = check_command(common, 10, DATA_DIR_TO_HOST,
 				      (7<<6) | (1<<1), 1,
-				      "READ TOC");*/
+				      "READ TOC");
 		if (reply == 0)
 			reply = do_read_toc(common, bh);
 		break;
@@ -2514,8 +2305,8 @@ static int get_next_command(struct fsg_common *common)
 	}
 
 	/* Queue a request to read a Bulk-only CBW */
-	set_bulk_out_req_length(common, bh, USB_BULK_CB_WRAP_LEN);
-	bh->outreq->short_not_ok = 1;
+	bh->outreq->length = USB_BULK_CB_WRAP_LEN;
+	bh->outreq->short_not_ok = 0;
 	if (!start_out_transfer(common, bh))
 		/* Don't know what to do if common->fsg is NULL */
 		return -EIO;
@@ -2542,6 +2333,18 @@ static int get_next_command(struct fsg_common *common)
 
 /*-------------------------------------------------------------------------*/
 
+static int enable_endpoint(struct fsg_common *common, struct usb_ep *ep,
+		const struct usb_endpoint_descriptor *d)
+{
+	int	rc;
+
+	ep->driver_data = common;
+	rc = usb_ep_enable(ep, d);
+	if (rc)
+		ERROR(common, "can't enable %s, result %d\n", ep->name, rc);
+	return rc;
+}
+
 static int alloc_request(struct fsg_common *common, struct usb_ep *ep,
 		struct usb_request **preq)
 {
@@ -2555,6 +2358,7 @@ static int alloc_request(struct fsg_common *common, struct usb_ep *ep,
 /* Reset interface setting and re-init endpoint state (toggle etc). */
 static int do_set_interface(struct fsg_common *common, struct fsg_dev *new_fsg)
 {
+	const struct usb_endpoint_descriptor *d;
 	struct fsg_dev *fsg;
 	int i, rc = 0;
 
@@ -2601,26 +2405,20 @@ reset:
 	fsg = common->fsg;
 
 	/* Enable the endpoints */
-	rc = config_ep_by_speed(common->gadget, &(fsg->function), fsg->bulk_in);
+	d = fsg_ep_desc(common->gadget,
+			&fsg_fs_bulk_in_desc, &fsg_hs_bulk_in_desc);
+	rc = enable_endpoint(common, fsg->bulk_in, d);
 	if (rc)
 		goto reset;
-	rc = usb_ep_enable(fsg->bulk_in);
-	if (rc)
-		goto reset;
-	fsg->bulk_in->driver_data = common;
 	fsg->bulk_in_enabled = 1;
 
-	rc = config_ep_by_speed(common->gadget, &(fsg->function),
-				fsg->bulk_out);
+	d = fsg_ep_desc(common->gadget,
+			&fsg_fs_bulk_out_desc, &fsg_hs_bulk_out_desc);
+	rc = enable_endpoint(common, fsg->bulk_out, d);
 	if (rc)
 		goto reset;
-	rc = usb_ep_enable(fsg->bulk_out);
-	if (rc)
-		goto reset;
-	fsg->bulk_out->driver_data = common;
 	fsg->bulk_out_enabled = 1;
-	common->bulk_out_maxpacket =
-		le16_to_cpu(fsg->bulk_out->desc->wMaxPacketSize);
+	common->bulk_out_maxpacket = le16_to_cpu(d->wMaxPacketSize);
 	clear_bit(IGNORE_BULK_OUT, &fsg->atomic_bitflags);
 
 	/* Allocate the requests */
@@ -2651,20 +2449,8 @@ reset:
 static int fsg_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 {
 	struct fsg_dev *fsg = fsg_from_func(f);
-	int i;
 	fsg->common->new_fsg = fsg;
 	raise_exception(fsg->common, FSG_STATE_CONFIG_CHANGE);
-#ifdef CONFIG_USB_MOT_ANDROID
-	for (i = 0; i < fsg->common->nluns; ++i) {
-		if ((i == fsg->common->cdrom_lun_num) && cdrom_enable) {
-			fsg->common->luns[i].cdrom = 1;
-			fsg->common->luns[i].ro = 1;
-		} else {
-			fsg->common->luns[i].cdrom = 0;
-			fsg->common->luns[i].ro = 0;
-		}
-	}
-#endif
 	return USB_GADGET_DELAYED_STATUS;
 }
 
@@ -2855,11 +2641,6 @@ static int fsg_main_thread(void *common_)
 			handle_exception(common);
 			continue;
 		}
-		if (common->switch_mode) {
-			common->switch_mode = 0;
-			update_function_type_and_reenumerate(MTPUSBNET_INDEX);
-		}
-
 
 		if (!common->running) {
 			sleep_thread(common);
@@ -2972,7 +2753,6 @@ static struct fsg_common *fsg_common_init(struct fsg_common *common,
 		common->free_storage_on_release = 0;
 	}
 
-	common->cdrom_lun_num = cfg->cdrom_lun_num;
 	common->ops = cfg->ops;
 	common->private_data = cfg->private_data;
 
@@ -3006,6 +2786,7 @@ static struct fsg_common *fsg_common_init(struct fsg_common *common,
 	for (i = 0, lcfg = cfg->luns; i < nluns; ++i, ++curlun, ++lcfg) {
 		curlun->cdrom = !!lcfg->cdrom;
 		curlun->ro = lcfg->cdrom || lcfg->ro;
+		curlun->nofua = 1;
 		curlun->initially_ro = curlun->ro;
 		curlun->removable = lcfg->removable;
 		curlun->dev.release = fsg_lun_release;
@@ -3084,6 +2865,15 @@ buffhds_first_it:
 				     ? "File-Stor Gadget"
 				     : "File-CD Gadget"),
 		 i);
+
+#ifdef	CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+	/* Default INQUIRY strings */
+	strncpy(common->vendor_string, "SAMSUNG",
+			sizeof(common->vendor_string) - 1);
+	strncpy(common->product_string, "File-Stor Gadget",
+			sizeof(common->product_string) - 1);
+	common->product_string[sizeof(common->product_string) - 1] = '\0';
+#endif
 
 	/*
 	 * Some peripheral controllers are known not to be able to

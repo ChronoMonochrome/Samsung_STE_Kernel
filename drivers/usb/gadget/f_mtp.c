@@ -410,15 +410,6 @@ static int mtp_create_bulk_endpoints(struct mtp_dev *dev,
 	ep->driver_data = dev;		/* claim the endpoint */
 	dev->ep_out = ep;
 
-	ep = usb_ep_autoconfig(cdev->gadget, out_desc);
-	if (!ep) {
-		DBG(cdev, "usb_ep_autoconfig for ep_out failed\n");
-		return -ENODEV;
-	}
-	DBG(cdev, "usb_ep_autoconfig for mtp ep_out got %s\n", ep->name);
-	ep->driver_data = dev;		/* claim the endpoint */
-	dev->ep_out = ep;
-
 	ep = usb_ep_autoconfig(cdev->gadget, intr_desc);
 	if (!ep) {
 		DBG(cdev, "usb_ep_autoconfig for ep_intr failed\n");
@@ -1017,11 +1008,27 @@ static int mtp_ctrlrequest(struct usb_composite_dev *cdev,
 			memcpy(cdev->req->buf, &mtp_ext_config_desc, value);
 		}
 	} else if ((ctrl->bRequestType & USB_TYPE_MASK) == USB_TYPE_CLASS) {
+		/* Get the interface number */
+		struct usb_descriptor_header **desc_header;
+		struct usb_interface_descriptor *desc;
+		u8 interfaceNum;
+		desc_header = dev->function.hs_descriptors;
+		desc = (struct usb_interface_descriptor *) (desc_header[0]);
+		interfaceNum = desc->bInterfaceNumber;
+
 		DBG(cdev, "class request: %d index: %d value: %d length: %d\n",
 			ctrl->bRequest, w_index, w_value, w_length);
 
-		if (ctrl->bRequest == MTP_REQ_CANCEL && w_index == 0
-				&& w_value == 0) {
+		/* According to errata-SIC1_0-20070316, w_index should
+		 * be equal to interface number. Latest OS Win 7 is
+		 * follwing the change. But windows XP is not following
+		 * this change. For backward compatibilty w_index is
+		 * being compared with "0" as well as interface number.
+		 */
+
+		if (ctrl->bRequest == MTP_REQ_CANCEL &&
+				((w_index == 0) || (w_index == interfaceNum)) &&
+				w_value == 0) {
 			DBG(cdev, "MTP_REQ_CANCEL\n");
 
 			spin_lock_irqsave(&dev->lock, flags);
@@ -1037,8 +1044,9 @@ static int mtp_ctrlrequest(struct usb_composite_dev *cdev,
 			 * the contents.
 			 */
 			value = w_length;
-		} else if (ctrl->bRequest == MTP_REQ_GET_DEVICE_STATUS
-				&& w_index == 0 && w_value == 0) {
+		} else if (ctrl->bRequest == MTP_REQ_GET_DEVICE_STATUS &&
+				((w_index == 0) || (w_index == interfaceNum)) &&
+				w_value == 0) {
 			struct mtp_device_status *status = cdev->req->buf;
 			status->wLength =
 				__constant_cpu_to_le16(sizeof(*status));
@@ -1087,6 +1095,7 @@ mtp_function_bind(struct usb_configuration *c, struct usb_function *f)
 	if (id < 0)
 		return id;
 	mtp_interface_desc.bInterfaceNumber = id;
+	mtp_ext_config_desc.function.bFirstInterfaceNumber = id;
 
 	/* allocate endpoints */
 	ret = mtp_create_bulk_endpoints(dev, &mtp_fullspeed_in_desc,
@@ -1132,18 +1141,21 @@ static int mtp_function_set_alt(struct usb_function *f,
 	int ret;
 
 	DBG(cdev, "mtp_function_set_alt intf: %d alt: %d\n", intf, alt);
-	config_ep_by_speed(cdev->gadget, f, dev->ep_in);
-	ret = usb_ep_enable(dev->ep_in);
+	ret = usb_ep_enable(dev->ep_in,
+			ep_choose(cdev->gadget,
+				&mtp_highspeed_in_desc,
+				&mtp_fullspeed_in_desc));
 	if (ret)
 		return ret;
-	config_ep_by_speed(cdev->gadget, f, dev->ep_out);
-	ret = usb_ep_enable(dev->ep_out);
+	ret = usb_ep_enable(dev->ep_out,
+			ep_choose(cdev->gadget,
+				&mtp_highspeed_out_desc,
+				&mtp_fullspeed_out_desc));
 	if (ret) {
 		usb_ep_disable(dev->ep_in);
 		return ret;
 	}
-	dev->ep_intr->desc = &mtp_intr_desc;
-	ret = usb_ep_enable(dev->ep_intr);
+	ret = usb_ep_enable(dev->ep_intr, &mtp_intr_desc);
 	if (ret) {
 		usb_ep_disable(dev->ep_out);
 		usb_ep_disable(dev->ep_in);

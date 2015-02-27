@@ -444,6 +444,11 @@ int xhci_run(struct usb_hcd *hcd)
 
 	if (ret) {
 legacy_irq:
+		if (!pdev->irq) {
+			xhci_err(xhci, "No msi-x/msi found and "
+					"no IRQ in BIOS\n");
+			return -EINVAL;
+		}
 		/* fall back to legacy interrupt*/
 		ret = request_irq(pdev->irq, &usb_hcd_irq, IRQF_SHARED,
 					hcd->irq_descr, hcd);
@@ -605,11 +610,11 @@ static void xhci_save_registers(struct xhci_hcd *xhci)
 	xhci->s3.dev_nt = xhci_readl(xhci, &xhci->op_regs->dev_notification);
 	xhci->s3.dcbaa_ptr = xhci_read_64(xhci, &xhci->op_regs->dcbaa_ptr);
 	xhci->s3.config_reg = xhci_readl(xhci, &xhci->op_regs->config_reg);
-	xhci->s3.irq_pending = xhci_readl(xhci, &xhci->ir_set->irq_pending);
-	xhci->s3.irq_control = xhci_readl(xhci, &xhci->ir_set->irq_control);
 	xhci->s3.erst_size = xhci_readl(xhci, &xhci->ir_set->erst_size);
 	xhci->s3.erst_base = xhci_read_64(xhci, &xhci->ir_set->erst_base);
 	xhci->s3.erst_dequeue = xhci_read_64(xhci, &xhci->ir_set->erst_dequeue);
+	xhci->s3.irq_pending = xhci_readl(xhci, &xhci->ir_set->irq_pending);
+	xhci->s3.irq_control = xhci_readl(xhci, &xhci->ir_set->irq_control);
 }
 
 static void xhci_restore_registers(struct xhci_hcd *xhci)
@@ -618,10 +623,11 @@ static void xhci_restore_registers(struct xhci_hcd *xhci)
 	xhci_writel(xhci, xhci->s3.dev_nt, &xhci->op_regs->dev_notification);
 	xhci_write_64(xhci, xhci->s3.dcbaa_ptr, &xhci->op_regs->dcbaa_ptr);
 	xhci_writel(xhci, xhci->s3.config_reg, &xhci->op_regs->config_reg);
-	xhci_writel(xhci, xhci->s3.irq_pending, &xhci->ir_set->irq_pending);
-	xhci_writel(xhci, xhci->s3.irq_control, &xhci->ir_set->irq_control);
 	xhci_writel(xhci, xhci->s3.erst_size, &xhci->ir_set->erst_size);
 	xhci_write_64(xhci, xhci->s3.erst_base, &xhci->ir_set->erst_base);
+	xhci_write_64(xhci, xhci->s3.erst_dequeue, &xhci->ir_set->erst_dequeue);
+	xhci_writel(xhci, xhci->s3.irq_pending, &xhci->ir_set->irq_pending);
+	xhci_writel(xhci, xhci->s3.irq_control, &xhci->ir_set->irq_control);
 }
 
 static void xhci_set_cmd_ring_deq(struct xhci_hcd *xhci)
@@ -1369,8 +1375,8 @@ int xhci_drop_endpoint(struct usb_hcd *hcd, struct usb_device *udev,
 	/* If the HC already knows the endpoint is disabled,
 	 * or the HCD has noted it is disabled, ignore this request
 	 */
-	if (((ep_ctx->ep_info & cpu_to_le32(EP_STATE_MASK)) ==
-	     cpu_to_le32(EP_STATE_DISABLED)) ||
+	if ((le32_to_cpu(ep_ctx->ep_info) & EP_STATE_MASK) ==
+	    EP_STATE_DISABLED ||
 	    le32_to_cpu(ctrl_ctx->drop_flags) &
 	    xhci_get_endpoint_flag(&ep->desc)) {
 		xhci_warn(xhci, "xHCI %s called with disabled ep %p\n",
@@ -1786,7 +1792,8 @@ static int xhci_configure_endpoint(struct xhci_hcd *xhci,
 		/* Enqueue pointer can be left pointing to the link TRB,
 		 * we must handle that
 		 */
-		if (TRB_TYPE_LINK_LE32(command->command_trb->link.control))
+		if ((le32_to_cpu(command->command_trb->link.control)
+		     & TRB_TYPE_BITMASK) == TRB_TYPE(TRB_LINK))
 			command->command_trb =
 				xhci->cmd_ring->enq_seg->next->trbs;
 
@@ -2591,7 +2598,8 @@ int xhci_discover_or_reset_device(struct usb_hcd *hcd, struct usb_device *udev)
 	/* Enqueue pointer can be left pointing to the link TRB,
 	 * we must handle that
 	 */
-	if (TRB_TYPE_LINK_LE32(reset_device_cmd->command_trb->link.control))
+	if ((le32_to_cpu(reset_device_cmd->command_trb->link.control)
+	     & TRB_TYPE_BITMASK) == TRB_TYPE(TRB_LINK))
 		reset_device_cmd->command_trb =
 			xhci->cmd_ring->enq_seg->next->trbs;
 
